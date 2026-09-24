@@ -33,6 +33,12 @@ public sealed record TicketReviewData(
     IReadOnlyList<string> SimilarTicketKeys,
     double? Confidence);
 
+/// <summary>Persistent (DB-wide, not session-scoped) decision counts for the dashboard's Approval rate (FR22).</summary>
+public sealed record DecisionTotals(int Approved, int Rejected)
+{
+    public double? ApprovalRate => Approved + Rejected == 0 ? null : (double)Approved / (Approved + Rejected);
+}
+
 public sealed record TicketBoardRow(
     int Id,
     string IssueKey,
@@ -57,6 +63,10 @@ public interface ITriageBoardQuery
     /// <summary>The next Pending ticket (by id) other than <paramref name="excludeId"/>, or null if there is none -
     /// used to jump to the next ticket after a decision (FR19).</summary>
     Task<int?> GetNextPendingIdAsync(int excludeId, CancellationToken cancellationToken);
+
+    /// <summary>Persistent Approved/Rejected counts across the whole DB, for the dashboard's Approval rate (FR22) -
+    /// unlike <see cref="SessionMetrics"/>, this survives a restart.</summary>
+    Task<DecisionTotals> GetDecisionTotalsAsync(CancellationToken cancellationToken);
 }
 
 public sealed class TriageBoardQuery(
@@ -216,6 +226,16 @@ public sealed class TriageBoardQuery(
             .OrderBy(t => t.Id)
             .Select(t => (int?)t.Id)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<DecisionTotals> GetDecisionTotalsAsync(CancellationToken cancellationToken)
+    {
+        await catalog.EnsureLoadedAsync(cancellationToken);
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var approved = await db.Tickets.AsNoTracking().CountAsync(t => t.StatusId == catalog.HumanApprovedStatusId, cancellationToken);
+        var rejected = await db.Tickets.AsNoTracking().CountAsync(t => t.StatusId == catalog.HumanRejectedStatusId, cancellationToken);
+        return new DecisionTotals(approved, rejected);
     }
 
     /// <summary>Distinguishes the two reasons a suggested value can be missing (Leitplanke 6): the pipeline simply

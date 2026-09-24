@@ -1,27 +1,87 @@
 @page "/"
 @using Microsoft.Extensions.Diagnostics.HealthChecks
-@inject HealthCheckService HealthChecks
 
 <PageTitle>Dashboard · TriAIge</PageTitle>
 
 <MudStack Row AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4">Dashboard</MudText>
     <MudSpacer />
-    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_loading">
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_loadingHealth">
         Refresh
     </MudButton>
 </MudStack>
 
+<MudText Typo="Typo.subtitle1" Class="mb-2">Tickets by state</MudText>
+<MudGrid Class="mb-4">
+    @foreach (var state in Enum.GetValues<TicketDisplayState>())
+    {
+        <MudItem xs="6" md="2">
+            <MudLink Href="@($"/tickets?state={state}")" Underline="Underline.None">
+                <MudCard Outlined Class="tt-state-card">
+                    <MudCardContent>
+                        <MudText Typo="Typo.h5">@CountFor(state)</MudText>
+                        <MudText Typo="Typo.body2">@state</MudText>
+                    </MudCardContent>
+                </MudCard>
+            </MudLink>
+        </MudItem>
+    }
+</MudGrid>
+
+<MudText Typo="Typo.subtitle1" Class="mb-2">Metrics</MudText>
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Outlined>
+            <MudCardContent>
+                <MudText Typo="Typo.h5">@FormatRate(_decisionTotals.ApprovalRate)</MudText>
+                <MudText Typo="Typo.body2">Approval rate (@_decisionTotals.Approved approved / @_decisionTotals.Rejected rejected)</MudText>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Outlined>
+            <MudCardContent>
+                <MudText Typo="Typo.h5">@FormatRate(_metrics.AcceptanceRate)</MudText>
+                <MudText Typo="Typo.body2">Acceptance rate (this session)</MudText>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Outlined>
+            <MudCardContent>
+                <MudText Typo="Typo.h5">@FormatDuration(_metrics.AverageUploadToFirstOpen)</MudText>
+                <MudText Typo="Typo.body2">Avg. upload &rarr; first open</MudText>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Outlined>
+            <MudCardContent>
+                <MudText Typo="Typo.h5">@FormatDuration(_metrics.AverageFirstOpenToDecision)</MudText>
+                <MudText Typo="Typo.body2">Avg. first open &rarr; decision</MudText>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>
+
+<MudText Typo="Typo.subtitle1" Class="mb-2">Edits per field (this session, approved tickets)</MudText>
+<MudStack Row Wrap="Wrap.Wrap" Class="mb-4">
+    @foreach (var (field, count) in _metrics.EditsPerField)
+    {
+        <MudChip T="string">@field: @count</MudChip>
+    }
+</MudStack>
+
 <MudText Typo="Typo.subtitle1" Class="mb-2">System health (readiness checks)</MudText>
 
-@if (_loading && _report is null)
+@if (_loadingHealth && _report is null)
 {
     <MudProgressLinear Indeterminate Color="Color.Primary" />
 }
 else if (_report is not null)
 {
     <MudGrid>
-        @foreach (var name in DisplayedChecks)
+        @foreach (var name in DisplayedHealthChecks)
         {
             var entry = _report.Entries.TryGetValue(name, out var found) ? found : (HealthReportEntry?)null;
             <MudItem xs="12" md="6">
@@ -56,36 +116,4 @@ else if (_report is not null)
         Overall: @_report.Status · last refreshed @_checkedAt.ToLocalTime().ToString("T")
         · the agent check is cached for 60 s to save tokens.
     </MudText>
-}
-
-@code {
-    private static readonly string[] DisplayedChecks = ["sqlite", "agent-framework"];
-
-    private HealthReport? _report;
-    private DateTimeOffset _checkedAt;
-    private bool _loading;
-
-    protected override Task OnInitializedAsync() => RefreshAsync();
-
-    private async Task RefreshAsync()
-    {
-        _loading = true;
-        try
-        {
-            _report = await HealthChecks.CheckHealthAsync(r => r.Tags.Contains(Extensions.ReadyTag), CancellationToken.None);
-            _checkedAt = DateTimeOffset.UtcNow;
-        }
-        finally
-        {
-            _loading = false;
-        }
-    }
-
-    private static Color ColorFor(HealthStatus? status) => status switch
-    {
-        HealthStatus.Healthy => Color.Success,
-        HealthStatus.Degraded => Color.Warning,
-        HealthStatus.Unhealthy => Color.Error,
-        _ => Color.Default,
-    };
 }

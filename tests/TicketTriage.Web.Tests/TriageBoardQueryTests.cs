@@ -92,4 +92,32 @@ public sealed class TriageBoardQueryTests : IAsyncLifetime
 
         rows.Should().ContainSingle(r => r.Id == ticketId && r.IssueKey == "TT-1" && r.State == TicketDisplayState.Queued);
     }
+
+    [Fact]
+    public async Task GetDecisionTotalsAsync_CountsApprovedAndRejected_PerFR22()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        await using (var db = _database.CreateContext())
+        {
+            db.Tickets.AddRange(
+                new TicketEntity { WorkTypeId = _catalog.DefaultWorkTypeId, Summary = "Approved 1", StatusId = _catalog.HumanApprovedStatusId, CreatedDate = DateTime.UtcNow },
+                new TicketEntity { WorkTypeId = _catalog.DefaultWorkTypeId, Summary = "Approved 2", StatusId = _catalog.HumanApprovedStatusId, CreatedDate = DateTime.UtcNow },
+                new TicketEntity { WorkTypeId = _catalog.DefaultWorkTypeId, Summary = "Rejected 1", StatusId = _catalog.HumanRejectedStatusId, CreatedDate = DateTime.UtcNow });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        var totals = await _query.GetDecisionTotalsAsync(cancellationToken);
+
+        totals.Approved.Should().Be(2);
+        totals.Rejected.Should().Be(1);
+        totals.ApprovalRate.Should().BeApproximately(2.0 / 3.0, 0.0001);
+    }
+
+    [Fact]
+    public async Task GetDecisionTotalsAsync_NoDecisions_ApprovalRateIsNull_PerFR22()
+    {
+        var totals = await _query.GetDecisionTotalsAsync(Xunit.TestContext.Current.CancellationToken);
+
+        totals.ApprovalRate.Should().BeNull();
+    }
 }

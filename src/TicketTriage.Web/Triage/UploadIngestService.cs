@@ -4,6 +4,15 @@ using TicketTriage.Infrastructure.Persistence;
 
 namespace TicketTriage.Web.Triage;
 
+/// <summary>What an upload row will do to the DB (FR4) - shown as the "DB" column on the Upload page. Only set
+/// (non-null) for entries that parsed as valid; a JSON-level invalid entry has no DB outcome at all.</summary>
+public enum DbMatchKind
+{
+    New,
+    Requeue,
+    AlreadyInTriage,
+}
+
 public sealed record UploadPreviewEntry(
     int Index,
     string IssueKey,
@@ -12,7 +21,9 @@ public sealed record UploadPreviewEntry(
     string? Reason,
     IReadOnlyList<string> Hints,
     Ticket? Ticket,
-    TicketEntity? Entity);
+    TicketEntity? Entity,
+    DbMatchKind? DbMatch = null,
+    int? MatchedTicketId = null);
 
 public sealed record UploadPreview(IReadOnlyList<UploadPreviewEntry> Entries, bool TrainingDataPresent, string? FileError)
 {
@@ -44,8 +55,10 @@ public interface IUploadIngestService
     Task<bool> EnqueueExistingAsync(int ticketId, CancellationToken cancellationToken);
 }
 
-/// <summary>Scoped per-request service backing the Upload page. DB-hit deduplication (FR4) is out of scope for
-/// Slice 1 (added in Slice 3); every valid entry is inserted as a new <see cref="TicketEntity"/>.</summary>
+/// <summary>Scoped per-request service backing the Upload page. Duplicates against the DB (FR4, Slice 3) are
+/// resolved by <see cref="ApplyDedupeAsync"/>, run once for the preview and again inside the save transaction
+/// (Leitplanke: the preview and the save round-trip are separate requests, so the DB can have changed between
+/// them).</summary>
 public sealed class UploadIngestService(
     IDbContextFactory<TriageDbContext> dbFactory,
     LookupCatalog catalog,
@@ -70,13 +83,15 @@ public sealed class UploadIngestService(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var trainingDataPresent = await db.Tickets.AnyAsync(t => t.StatusId == catalog.FinishedStatusId, cancellationToken);
 
-        return new UploadPreview(entries, trainingDataPresent, FileError: null);
+        var deduped = await ApplyDedupeAsync(entries, db, cancellationToken);
+
+        return new UploadPreview(deduped, trainingDataPresent, FileError: null);
     }
 
     public async Task<SaveResult> SaveAndEnqueueAsync(UploadPreview preview, bool confirmedWithoutTrainingData, CancellationToken cancellationToken)
     {
-        var validEntries = preview.Entries.Where(e => e.IsValid).ToList();
-        if (validEntries.Count == 0)
+        var candidateEntries = preview.Entries.Where(e => e.IsValid).ToList();
+        if (candidateEntries.Count == 0)
         {
             return new SaveResult(SaveOutcome.NoValidEntries, 0);
         }
@@ -89,18 +104,101 @@ public sealed class UploadIngestService(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        db.Tickets.AddRange(validEntries.Select(e => e.Entity!));
+        // Re-run the dedupe check inside the transaction (FR4/Leitplanke): the preview happened on an earlier
+        // request, so another upload (or a restart) may have changed the DB in the meantime.
+        var deduped = await ApplyDedupeAsync(candidateEntries, db, cancellationToken);
+        var toInsert = deduped.Where(e => e.DbMatch == DbMatchKind.New).ToList();
+        var toRequeue = deduped.Where(e => e.DbMatch == DbMatchKind.Requeue).ToList();
+
+        db.Tickets.AddRange(toInsert.Select(e => e.Entity!));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         var uploadId = Interlocked.Increment(ref _uploadSequence);
-        foreach (var entry in validEntries)
+        foreach (var entry in toInsert)
         {
             // Registered only after the commit (Leitplanke 3/FR3): the worker can never see an un-persisted ticket.
             store.Register(entry.Entity!.Id, entry.IssueKey, entry.Ticket!, uploadId);
         }
 
-        return new SaveResult(SaveOutcome.Saved, validEntries.Count, uploadId);
+        foreach (var entry in toRequeue)
+        {
+            // No insert (FR4): a match without a suggestion or decision is re-enqueued under its existing id,
+            // restoring the issue key in RAM (e.g. after a restart cleared the queue).
+            store.Register(entry.MatchedTicketId!.Value, entry.IssueKey, entry.Ticket!, uploadId);
+        }
+
+        return new SaveResult(SaveOutcome.Saved, toInsert.Count + toRequeue.Count, uploadId);
+    }
+
+    /// <summary>Resolves each valid entry against existing DB rows (FR4): one query for candidates sharing a
+    /// summary, then an in-memory comparison of the (already truncated) description and - only if the source
+    /// ticket had one - the created date. Finished (training) tickets are excluded up front and are therefore
+    /// never treated as duplicates.</summary>
+    private async Task<List<UploadPreviewEntry>> ApplyDedupeAsync(
+        IReadOnlyList<UploadPreviewEntry> entries, TriageDbContext db, CancellationToken cancellationToken)
+    {
+        var validEntries = entries.Where(e => e.IsValid).ToList();
+        if (validEntries.Count == 0)
+        {
+            return [.. entries];
+        }
+
+        var summaries = validEntries.Select(e => e.Entity!.Summary).Distinct().ToList();
+        var candidates = await db.Tickets
+            .AsNoTracking()
+            .Where(t => summaries.Contains(t.Summary) && t.StatusId != catalog.FinishedStatusId)
+            .ToListAsync(cancellationToken);
+
+        if (candidates.Count == 0)
+        {
+            return [.. entries.Select(e => e.IsValid ? e with { DbMatch = DbMatchKind.New } : e)];
+        }
+
+        var result = new List<UploadPreviewEntry>(entries.Count);
+        foreach (var entry in entries)
+        {
+            result.Add(entry.IsValid ? ResolveMatch(entry, FindMatch(entry, candidates)) : entry);
+        }
+
+        return result;
+    }
+
+    private static TicketEntity? FindMatch(UploadPreviewEntry entry, IReadOnlyList<TicketEntity> candidates)
+    {
+        var mapped = entry.Entity!;
+        var hasCreated = entry.Ticket!.Created.HasValue;
+        return candidates.FirstOrDefault(candidate =>
+            string.Equals(candidate.Summary, mapped.Summary, StringComparison.Ordinal)
+            && string.Equals(candidate.Description, mapped.Description, StringComparison.Ordinal)
+            && (!hasCreated || candidate.CreatedDate == mapped.CreatedDate));
+    }
+
+    private UploadPreviewEntry ResolveMatch(UploadPreviewEntry entry, TicketEntity? match)
+    {
+        if (match is null)
+        {
+            return entry with { DbMatch = DbMatchKind.New };
+        }
+
+        string? decidedState =
+            match.StatusId == catalog.HumanApprovedStatusId ? "Approved" :
+            match.StatusId == catalog.HumanRejectedStatusId ? "Rejected" :
+            match.StatusId == catalog.NewStatusId && TicketPredicates.HasSuggestionCompiled(match) ? "Pending" :
+            null;
+
+        if (decidedState is not null)
+        {
+            return entry with
+            {
+                IsValid = false,
+                Reason = $"already in triage ({decidedState})",
+                DbMatch = DbMatchKind.AlreadyInTriage,
+                MatchedTicketId = match.Id,
+            };
+        }
+
+        return entry with { DbMatch = DbMatchKind.Requeue, MatchedTicketId = match.Id };
     }
 
     public async Task<bool> EnqueueExistingAsync(int ticketId, CancellationToken cancellationToken)

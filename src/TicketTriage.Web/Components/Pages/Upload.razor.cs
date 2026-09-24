@@ -26,6 +26,14 @@ public partial class Upload : IDisposable
     [Inject]
     private NavigationManager Navigation { get; set; } = null!;
 
+    private static string DbMatchLabel(DbMatchKind? match) => match switch
+    {
+        DbMatchKind.New => "new",
+        DbMatchKind.Requeue => "re-queue",
+        DbMatchKind.AlreadyInTriage => "already in triage",
+        _ => "—",
+    };
+
     private bool CanSave =>
         _preview is { FileError: null, ValidCount: > 0 } preview
         && (preview.TrainingDataPresent || _confirmWithoutTrainingData);

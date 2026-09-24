@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using TicketTriage.Core.Domain;
@@ -70,6 +71,32 @@ public sealed class TicketsPageTests : TriageBunitContext
         cut.Markup.Should().NotContain("training");
     }
 
+    [Fact]
+    public void SupplyStateFromQuery_PreselectsFilterChip_PerAC13()
+    {
+        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
+        var boardQuery = new FakeBoardQuery
+        {
+            Rows =
+            [
+                new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Failed, "boom"),
+                new TicketBoardRow(2, "TT-2", "Summary for TT-2", "Incident", null, "—", null, TicketDisplayState.Pending, null),
+            ],
+        };
+        Services.AddSingleton(store);
+        Services.AddSingleton<ITriageBoardQuery>(boardQuery);
+
+        // [SupplyParameterFromQuery] parameters are only supplied via the (fake) NavigationManager, not
+        // Render(p => p.Add(...)) - bunit throws with this exact guidance if you try the latter.
+        var navigation = Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo(navigation.GetUriWithQueryParameter("state", "Failed"));
+
+        var cut = Render<Tickets>();
+
+        cut.Markup.Should().Contain("TT-1");
+        cut.Markup.Should().NotContain("TT-2");
+    }
+
     private sealed class FakeBoardQuery : ITriageBoardQuery
     {
         public IReadOnlyList<TicketBoardRow> Rows { get; set; } = [];
@@ -82,5 +109,8 @@ public sealed class TicketsPageTests : TriageBunitContext
 
         public Task<int?> GetNextPendingIdAsync(int excludeId, CancellationToken cancellationToken) =>
             Task.FromResult<int?>(null);
+
+        public Task<DecisionTotals> GetDecisionTotalsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new DecisionTotals(0, 0));
     }
 }

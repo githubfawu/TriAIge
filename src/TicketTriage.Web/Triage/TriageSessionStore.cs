@@ -38,6 +38,10 @@ public sealed record TriageSessionEntry
 
     public IReadOnlyList<string> NotInCatalog { get; init; } = [];
 
+    /// <summary>When this ticket (last) entered the RAM queue - the "upload" side of the Slice 3 upload-to-open
+    /// metric (<see cref="SessionMetrics"/>). Set once per <see cref="TriageSessionStore.Register"/> call.</summary>
+    public required DateTimeOffset RegisteredAt { get; init; }
+
     // Slice 2/3 fields (kept here now so the record shape doesn't change later):
     public DateTimeOffset? FirstOpenedAt { get; init; }
 
@@ -85,6 +89,7 @@ public sealed class TriageSessionStore(ILogger<TriageSessionStore> logger, TimeP
                 Ticket = ticket,
                 UploadId = uploadId,
                 Phase = QueuePhase.Queued,
+                RegisteredAt = _timeProvider.GetUtcNow(),
             };
             enqueued = _queue.TryEnqueue(ticketId);
         }

@@ -28,11 +28,20 @@ public partial class Tickets : IDisposable
     [Parameter]
     public int? UploadId { get; set; }
 
+    /// <summary>Preselects the state filter chip (FR22/AC13: dashboard cards link here as <c>/tickets?state=…</c>).</summary>
+    [SupplyParameterFromQuery(Name = "state")]
+    [Parameter]
+    public string? State { get; set; }
+
     private IEnumerable<TicketBoardRow> FilteredRows => _filter is null ? _rows : _rows.Where(r => r.State == _filter);
 
     private UploadProgress? Progress => UploadId is { } uploadId ? Store.GetUploadProgress(uploadId) : null;
 
-    protected override async Task OnInitializedAsync() => _rows = await BoardQuery.GetRowsAsync(_cts.Token);
+    protected override async Task OnInitializedAsync()
+    {
+        _filter = Enum.TryParse<TicketDisplayState>(State, ignoreCase: true, out var parsed) ? parsed : null;
+        _rows = await BoardQuery.GetRowsAsync(_cts.Token);
+    }
 
     protected override void OnAfterRender(bool firstRender)
     {

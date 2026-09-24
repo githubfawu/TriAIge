@@ -53,6 +53,7 @@ else if (_preview is { } preview)
                 <th>Issue key</th>
                 <th>Summary</th>
                 <th>Valid</th>
+                <th>DB</th>
                 <th>Notes</th>
             </tr>
         </thead>
@@ -64,6 +65,7 @@ else if (_preview is { } preview)
                     <td>@entry.IssueKey</td>
                     <td>@entry.Summary</td>
                     <td>@(entry.IsValid ? "Valid" : "Invalid")</td>
+                    <td>@DbMatchLabel(entry.DbMatch)</td>
                     <td>@string.Join(" ", entry.Reason is { } reason ? [reason] : entry.Hints)</td>
                 </tr>
             }

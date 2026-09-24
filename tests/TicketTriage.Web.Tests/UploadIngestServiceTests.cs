@@ -146,6 +146,96 @@ public sealed class UploadIngestServiceTests : IAsyncLifetime
         _store.Get(ticketId).Should().BeNull();
     }
 
+    [Fact]
+    public async Task SaveAndEnqueueAsync_SameFileAfterRestart_ZeroNewRows_RequeuesUnanalysed_SkipsDecided_PerAC4()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        await SeedFinishedTicketAsync(cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(FixturePath, cancellationToken);
+
+        var firstPreview = await _service.PreviewAsync(bytes, cancellationToken);
+        var firstResult = await _service.SaveAndEnqueueAsync(firstPreview, confirmedWithoutTrainingData: false, cancellationToken);
+        firstResult.Outcome.Should().Be(SaveOutcome.Saved);
+        firstResult.SavedCount.Should().Be(5);
+
+        // Simulate what a running app would have done to 3 of the 5 tickets before "restarting" (clearing RAM):
+        // one decided each way, one analysed-but-still-Pending, two left untouched.
+        int approvedId, rejectedId, pendingId, unanalysedId1, unanalysedId2;
+        await using (var db = _database.CreateContext())
+        {
+            var tickets = await db.Tickets
+                .Where(t => t.StatusId == _catalog.NewStatusId)
+                .OrderBy(t => t.Id)
+                .ToListAsync(cancellationToken);
+            tickets.Should().HaveCount(5);
+
+            approvedId = tickets[0].Id;
+            rejectedId = tickets[1].Id;
+            pendingId = tickets[2].Id;
+            unanalysedId1 = tickets[3].Id;
+            unanalysedId2 = tickets[4].Id;
+
+            tickets[0].StatusId = _catalog.HumanApprovedStatusId;
+            tickets[1].StatusId = _catalog.HumanRejectedStatusId;
+            tickets[2].WorkTypeChangedId = _catalog.DefaultWorkTypeId;
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        // "Restart": a brand-new RAM store and service, same DB (Technical Constraints: RAM-Store is lost, DB isn't).
+        var restartedStore = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
+        var restartedService = new UploadIngestService(_database.CreateFactory(), _catalog, restartedStore, TimeProvider.System);
+
+        var secondPreview = await restartedService.PreviewAsync(bytes, cancellationToken);
+        secondPreview.Entries.Should().HaveCount(5);
+        secondPreview.Entries[0].DbMatch.Should().Be(DbMatchKind.AlreadyInTriage);
+        secondPreview.Entries[0].Reason.Should().Contain("Approved");
+        secondPreview.Entries[1].DbMatch.Should().Be(DbMatchKind.AlreadyInTriage);
+        secondPreview.Entries[1].Reason.Should().Contain("Rejected");
+        secondPreview.Entries[2].DbMatch.Should().Be(DbMatchKind.AlreadyInTriage);
+        secondPreview.Entries[2].Reason.Should().Contain("Pending");
+        secondPreview.Entries[3].DbMatch.Should().Be(DbMatchKind.Requeue);
+        secondPreview.Entries[4].DbMatch.Should().Be(DbMatchKind.Requeue);
+
+        var secondResult = await restartedService.SaveAndEnqueueAsync(secondPreview, confirmedWithoutTrainingData: false, cancellationToken);
+        secondResult.Outcome.Should().Be(SaveOutcome.Saved);
+        secondResult.SavedCount.Should().Be(2); // only the two un-analysed tickets are (re-)registered, nothing new
+
+        await using (var db = _database.CreateContext())
+        {
+            (await db.Tickets.CountAsync(cancellationToken)).Should().Be(6); // 5 from the first save + 1 Finished, no new rows
+        }
+
+        restartedStore.Get(unanalysedId1)!.Phase.Should().Be(QueuePhase.Queued);
+        restartedStore.Get(unanalysedId2)!.Phase.Should().Be(QueuePhase.Queued);
+        restartedStore.Get(approvedId).Should().BeNull();
+        restartedStore.Get(rejectedId).Should().BeNull();
+        restartedStore.Get(pendingId).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_MatchOnlyAgainstFinishedTraining_IsNeverADuplicate_PerFR4()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+
+        // A Finished (training) ticket with the exact same summary/description as fixture entry #0.
+        await using (var db = _database.CreateContext())
+        {
+            db.Tickets.Add(new TicketEntity
+            {
+                WorkTypeId = _catalog.DefaultWorkTypeId,
+                Summary = "Outlook keeps freezing when opening shared calendars",
+                Description = "Several analysts report that Outlook hangs for 30+ seconds whenever a shared calendar is opened.",
+                StatusId = _catalog.FinishedStatusId,
+                CreatedDate = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        var preview = await _service.PreviewAsync(await File.ReadAllBytesAsync(FixturePath, cancellationToken), cancellationToken);
+
+        preview.Entries[0].DbMatch.Should().Be(DbMatchKind.New);
+    }
+
     private async Task SeedFinishedTicketAsync(CancellationToken cancellationToken)
     {
         await using var db = _database.CreateContext();

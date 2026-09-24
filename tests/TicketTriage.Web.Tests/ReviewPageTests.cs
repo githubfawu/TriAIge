@@ -282,6 +282,8 @@ public sealed class ReviewPageTests : TriageBunitContext
         public Task<TicketReviewData?> GetReviewAsync(int id, CancellationToken cancellationToken) => Task.FromResult(Data);
 
         public Task<int?> GetNextPendingIdAsync(int excludeId, CancellationToken cancellationToken) => Task.FromResult<int?>(null);
+
+        public Task<DecisionTotals> GetDecisionTotalsAsync(CancellationToken cancellationToken) => Task.FromResult(new DecisionTotals(0, 0));
     }
 
     private sealed class FakeIngestService : IUploadIngestService
