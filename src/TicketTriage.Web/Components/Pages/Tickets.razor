@@ -8,42 +8,49 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Pending review</MudText>
 
-<MudTable T="TriageSuggestionEntity" Items="_pending" Loading="_pending is null" Hover Dense
+<MudTable T="PendingTicketRow" Items="_pending" Loading="_pending is null" Hover Dense
           OnRowClick="OpenReview">
     <HeaderContent>
         <MudTh>Ticket</MudTh>
         <MudTh>Created</MudTh>
-        <MudTh>Decision</MudTh>
+        <MudTh>Status</MudTh>
     </HeaderContent>
     <RowTemplate>
-        <MudTd DataLabel="Ticket">@context.TicketKey</MudTd>
-        <MudTd DataLabel="Created">@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
-        <MudTd DataLabel="Decision">@context.Decision</MudTd>
+        <MudTd DataLabel="Ticket">@context.Summary</MudTd>
+        <MudTd DataLabel="Created">@context.CreatedDate.ToString("g")</MudTd>
+        <MudTd DataLabel="Status">@context.Status</MudTd>
     </RowTemplate>
     <NoRecordsContent>
-        <MudText>No suggestions waiting for review.</MudText>
+        <MudText>No tickets waiting for review.</MudText>
     </NoRecordsContent>
 </MudTable>
 
 @code {
-    private List<TriageSuggestionEntity>? _pending;
+    private List<PendingTicketRow>? _pending;
 
     protected override async Task OnInitializedAsync()
     {
         // TODO: implement - paging, filtering, and populating suggestions via the triage pipeline.
         await using var db = await DbFactory.CreateDbContextAsync();
-        _pending = await db.TriageSuggestions
+        _pending = await db.Tickets
             .AsNoTracking()
-            .Where(s => s.Decision == ReviewDecision.Pending)
-            .OrderBy(s => s.CreatedAt)
+            .Where(t => t.WorkTypeChangedId != null || t.AffectedBusinessOrITServiceChangedId != null
+                || t.BusinessEntityChangedId != null || t.ServiceTeamChangedId != null || t.AssigneeChanged != null
+                || t.PriorityChangedId != null || t.UrgencyChangedId != null || t.ImpactChangedId != null
+                || t.StatusChangedId != null || t.ResolutionChanged != null || t.ResolutionDateChanged != null)
+            .OrderBy(t => t.CreatedDate)
+            .Join(db.Statuses, t => t.StatusId, s => s.Id,
+                (t, s) => new PendingTicketRow(t.Id, t.Summary, t.CreatedDate, s.Name))
             .ToListAsync();
     }
 
-    private void OpenReview(TableRowClickEventArgs<TriageSuggestionEntity> args)
+    private void OpenReview(TableRowClickEventArgs<PendingTicketRow> args)
     {
         if (args.Item is { } item)
         {
             Navigation.NavigateTo($"review/{item.Id}");
         }
     }
+
+    private sealed record PendingTicketRow(int Id, string Summary, DateTime CreatedDate, string Status);
 }

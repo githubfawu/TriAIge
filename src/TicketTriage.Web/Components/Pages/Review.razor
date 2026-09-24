@@ -1,76 +1,139 @@
-@page "/review/{Id:guid}"
-@using System.Text.Json
+@page "/review/{Id:int}"
 @using Microsoft.EntityFrameworkCore
 @using TicketTriage.Infrastructure.Persistence
 @inject IDbContextFactory<TriageDbContext> DbFactory
 @inject ISnackbar Snackbar
+@inject NavigationManager Navigation
 
 <PageTitle>Review · TriAIge</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4">Review suggestion</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Review ticket</MudText>
 
 @if (_loading)
 {
     <MudProgressLinear Indeterminate Color="Color.Primary" />
 }
-else if (_suggestion is null)
+else if (_ticket is null)
 {
-    <MudAlert Severity="Severity.Warning">Suggestion @Id was not found.</MudAlert>
+    <MudAlert Severity="Severity.Warning">Ticket @Id was not found.</MudAlert>
 }
 else
 {
     <MudGrid>
         <MudItem xs="12" md="6">
             <MudPaper Outlined Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-2">AI suggestion · @_suggestion.TicketKey</MudText>
+                <MudText Typo="Typo.h6" Class="mb-2">Current values · #@_ticket.Id</MudText>
                 <MudSimpleTable Dense Elevation="0">
                     <tbody>
-                        <tr><td>Work type</td><td>@_suggestion.WorkType</td></tr>
-                        <tr><td>Affected services</td><td>@string.Join(", ", _suggestion.AffectedServices)</td></tr>
-                        <tr><td>Service team(s)</td><td>@string.Join(", ", _suggestion.ServiceTeams)</td></tr>
-                        <tr><td>Assignee</td><td>@_suggestion.Assignee</td></tr>
-                        <tr><td>Urgency / Impact</td><td>@_suggestion.Urgency / @_suggestion.Impact</td></tr>
-                        <tr><td>Priority</td><td>@_suggestion.Priority</td></tr>
-                        <tr><td>Draft comment</td><td>@_suggestion.DraftComment</td></tr>
+                        <tr><td>Work type</td><td>@NameOf(_workTypes, _ticket.WorkTypeId)</td></tr>
+                        <tr><td>Affected service</td><td>@NameOf(_affectedServices, _ticket.AffectedBusinessOrITServiceId)</td></tr>
+                        <tr><td>Business entity</td><td>@NameOf(_businessEntities, _ticket.BusinessEntityId)</td></tr>
+                        <tr><td>Service team</td><td>@NameOf(_serviceTeams, _ticket.ServiceTeamId)</td></tr>
+                        <tr><td>Assignee</td><td>@_ticket.Assignee</td></tr>
+                        <tr><td>Urgency / Impact</td><td>@NameOf(_urgencies, _ticket.UrgencyId) / @NameOf(_impacts, _ticket.ImpactId)</td></tr>
+                        <tr><td>Priority</td><td>@NameOf(_priorities, _ticket.PriorityId)</td></tr>
+                        <tr><td>Status</td><td>@NameOf(_statuses, _ticket.StatusId)</td></tr>
+                        <tr><td>Resolution</td><td>@_ticket.Resolution</td></tr>
                     </tbody>
                 </MudSimpleTable>
             </MudPaper>
+
+            @if (_hasAiSuggestions)
+            {
+                <MudPaper Outlined Class="pa-4 mt-4">
+                    <MudText Typo="Typo.h6" Class="mb-2">AI-suggested change</MudText>
+                    <MudSimpleTable Dense Elevation="0">
+                        <tbody>
+                            @if (_ticket.WorkTypeChangedId is not null)
+                            {
+                                <tr><td>Work type</td><td>@NameOf(_workTypes, _ticket.WorkTypeChangedId)</td></tr>
+                            }
+                            @if (_ticket.AffectedBusinessOrITServiceChangedId is not null)
+                            {
+                                <tr><td>Affected service</td><td>@NameOf(_affectedServices, _ticket.AffectedBusinessOrITServiceChangedId)</td></tr>
+                            }
+                            @if (_ticket.BusinessEntityChangedId is not null)
+                            {
+                                <tr><td>Business entity</td><td>@NameOf(_businessEntities, _ticket.BusinessEntityChangedId)</td></tr>
+                            }
+                            @if (_ticket.ServiceTeamChangedId is not null)
+                            {
+                                <tr><td>Service team</td><td>@NameOf(_serviceTeams, _ticket.ServiceTeamChangedId)</td></tr>
+                            }
+                            @if (_ticket.AssigneeChanged is not null)
+                            {
+                                <tr><td>Assignee</td><td>@_ticket.AssigneeChanged</td></tr>
+                            }
+                            @if (_ticket.UrgencyChangedId is not null || _ticket.ImpactChangedId is not null)
+                            {
+                                <tr><td>Urgency / Impact</td><td>@NameOf(_urgencies, _ticket.UrgencyChangedId) / @NameOf(_impacts, _ticket.ImpactChangedId)</td></tr>
+                            }
+                            @if (_ticket.StatusChangedId is not null)
+                            {
+                                <tr><td>Status</td><td>@NameOf(_statuses, _ticket.StatusChangedId)</td></tr>
+                            }
+                            @if (_ticket.ResolutionChanged is not null)
+                            {
+                                <tr><td>Resolution</td><td>@_ticket.ResolutionChanged</td></tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                    <MudStack Row Justify="Justify.FlexEnd" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="ApplyAiSuggestionsAsync">Approve</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DiscardAiSuggestionsAsync">Reject</MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
         </MudItem>
 
         <MudItem xs="12" md="6">
             <MudPaper Outlined Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-2">Analyst decision</MudText>
+                <MudText Typo="Typo.h6" Class="mb-2">Edit</MudText>
                 <MudStack Spacing="2">
-                    <MudSelect T="WorkType" Label="Work type" @bind-Value="_form.WorkType">
-                        @foreach (var value in Enum.GetValues<WorkType>())
+                    <MudSelect T="int" Label="Work type" @bind-Value="_form.WorkTypeId">
+                        @foreach (var item in _workTypes)
                         {
-                            <MudSelectItem Value="value">@value</MudSelectItem>
+                            <MudSelectItem Value="item.Id">@item.Name</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudTextField T="string" Label="Affected services (comma-separated)" @bind-Value="_form.AffectedServices" />
-                    <MudTextField T="string" Label="Service team(s) (comma-separated)" @bind-Value="_form.ServiceTeams" />
+                    <MudSelect T="int?" Label="Affected service" @bind-Value="_form.AffectedServiceId">
+                        @foreach (var item in _affectedServices)
+                        {
+                            <MudSelectItem Value="(int?)item.Id">@item.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="int?" Label="Service team" @bind-Value="_form.ServiceTeamId">
+                        @foreach (var item in _serviceTeams)
+                        {
+                            <MudSelectItem Value="(int?)item.Id">@item.Name</MudSelectItem>
+                        }
+                    </MudSelect>
                     <MudTextField T="string" Label="Assignee" @bind-Value="_form.Assignee" />
                     <MudStack Row>
-                        <MudSelect T="Urgency" Label="Urgency" @bind-Value="_form.Urgency">
-                            @foreach (var value in Enum.GetValues<Urgency>())
+                        <MudSelect T="int?" Label="Urgency" @bind-Value="_form.UrgencyId">
+                            @foreach (var item in _urgencies)
                             {
-                                <MudSelectItem Value="value">@value</MudSelectItem>
+                                <MudSelectItem Value="(int?)item.Id">@item.Name</MudSelectItem>
                             }
                         </MudSelect>
-                        <MudSelect T="Impact" Label="Impact" @bind-Value="_form.Impact">
-                            @foreach (var value in Enum.GetValues<Impact>())
+                        <MudSelect T="int?" Label="Impact" @bind-Value="_form.ImpactId">
+                            @foreach (var item in _impacts)
                             {
-                                <MudSelectItem Value="value">@value</MudSelectItem>
+                                <MudSelectItem Value="(int?)item.Id">@item.Name</MudSelectItem>
                             }
                         </MudSelect>
                     </MudStack>
-                    <MudText Typo="Typo.body2">Priority (derived): <b>@PriorityMatrix.Resolve(_form.Urgency, _form.Impact)</b></MudText>
-                    <MudTextField T="string" Label="Resolution comment" Lines="5" @bind-Value="_form.DraftComment" />
+                    <MudText Typo="Typo.body2">Priority (derived): <b>@NameOf(_priorities, _previewPriorityId)</b></MudText>
+                    <MudSelect T="int" Label="Status" @bind-Value="_form.StatusId">
+                        @foreach (var item in _statuses)
+                        {
+                            <MudSelectItem Value="item.Id">@item.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField T="string" Label="Resolution" Lines="5" @bind-Value="_form.Resolution" />
 
                     <MudStack Row Justify="Justify.FlexEnd" Class="mt-2">
-                        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="() => NotImplemented(ReviewDecision.Approved)">Approve</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => NotImplemented(ReviewDecision.Edited)">Save edits</MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => NotImplemented(ReviewDecision.Rejected)">Reject</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEditsAsync">Save</MudButton>
                     </MudStack>
                 </MudStack>
             </MudPaper>
@@ -79,49 +142,172 @@ else
 }
 
 @code {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
     [Parameter]
-    public Guid Id { get; set; }
+    public int Id { get; set; }
 
     private bool _loading = true;
-    private TriageSuggestion? _suggestion;
-    private ReviewForm _form = new();
+    private TicketEntity? _ticket;
+    private EditForm _form = new();
+    private List<LookupItem> _workTypes = [];
+    private List<LookupItem> _urgencies = [];
+    private List<LookupItem> _impacts = [];
+    private List<LookupItem> _priorities = [];
+    private List<LookupItem> _serviceTeams = [];
+    private List<LookupItem> _affectedServices = [];
+    private List<LookupItem> _businessEntities = [];
+    private List<LookupItem> _statuses = [];
+
+    private bool _hasAiSuggestions =>
+        _ticket is { } t && (t.WorkTypeChangedId is not null || t.AffectedBusinessOrITServiceChangedId is not null
+            || t.BusinessEntityChangedId is not null || t.ServiceTeamChangedId is not null || t.AssigneeChanged is not null
+            || t.UrgencyChangedId is not null || t.ImpactChangedId is not null || t.StatusChangedId is not null
+            || t.ResolutionChanged is not null || t.ResolutionDateChanged is not null);
+
+    private int? _previewPriorityId => _priorityMapping
+        .Where(m => m.UrgencyId == _form.UrgencyId && m.ImpactId == _form.ImpactId)
+        .Select(m => (int?)m.PriorityId)
+        .FirstOrDefault();
+
+    private List<PriorityMappingEntity> _priorityMapping = [];
 
     protected override async Task OnParametersSetAsync()
     {
         _loading = true;
         await using var db = await DbFactory.CreateDbContextAsync();
-        var entity = await db.TriageSuggestions.AsNoTracking().SingleOrDefaultAsync(s => s.Id == Id);
 
-        _suggestion = entity is null ? null : JsonSerializer.Deserialize<TriageSuggestion>(entity.SuggestionJson, JsonOptions);
-        _form = _suggestion is null ? new ReviewForm() : ReviewForm.From(_suggestion);
+        _ticket = await db.Tickets.AsNoTracking().SingleOrDefaultAsync(t => t.Id == Id);
+        _workTypes = await ToLookupItemsAsync(db.WorkTypes);
+        _urgencies = await ToLookupItemsAsync(db.Urgencies);
+        _impacts = await ToLookupItemsAsync(db.Impacts);
+        _priorities = await ToLookupItemsAsync(db.Priorities);
+        _serviceTeams = await ToLookupItemsAsync(db.ServiceTeams);
+        _affectedServices = await ToLookupItemsAsync(db.AffectedBusinessOrITServices);
+        _businessEntities = await ToLookupItemsAsync(db.BusinessEntities);
+        _statuses = await ToLookupItemsAsync(db.Statuses);
+        _priorityMapping = await db.PriorityMappings.AsNoTracking().ToListAsync();
+
+        _form = _ticket is null ? new EditForm() : EditForm.From(_ticket);
         _loading = false;
     }
 
-    // TODO: implement - persist the decision (and edited values) on TriageSuggestionEntity.
-    private void NotImplemented(ReviewDecision decision) =>
-        Snackbar.Add($"'{decision}' is not implemented yet.", Severity.Info);
-
-    private sealed class ReviewForm
+    private async Task ApplyAiSuggestionsAsync()
     {
-        public WorkType WorkType { get; set; }
-        public string? AffectedServices { get; set; }
-        public string? ServiceTeams { get; set; }
-        public string? Assignee { get; set; }
-        public Urgency Urgency { get; set; } = Urgency.Medium;
-        public Impact Impact { get; set; } = Impact.Moderate;
-        public string? DraftComment { get; set; }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var ticket = await db.Tickets.SingleAsync(t => t.Id == Id);
 
-        public static ReviewForm From(TriageSuggestion suggestion) => new()
+        if (ticket.WorkTypeChangedId is { } workType) { ticket.WorkTypeId = workType; }
+        if (ticket.AffectedBusinessOrITServiceChangedId is { } service) { ticket.AffectedBusinessOrITServiceId = service; }
+        if (ticket.BusinessEntityChangedId is { } entity) { ticket.BusinessEntityId = entity; }
+        if (ticket.ServiceTeamChangedId is { } team) { ticket.ServiceTeamId = team; }
+        if (ticket.AssigneeChanged is { } assignee) { ticket.Assignee = assignee; }
+        if (ticket.UrgencyChangedId is { } urgency) { ticket.UrgencyId = urgency; }
+        if (ticket.ImpactChangedId is { } impact) { ticket.ImpactId = impact; }
+        if (ticket.StatusChangedId is { } status) { ticket.StatusId = status; }
+        if (ticket.ResolutionChanged is { } resolution) { ticket.Resolution = resolution; }
+        if (ticket.ResolutionDateChanged is { } resolutionDate) { ticket.ResolutionDate = resolutionDate; }
+
+        ticket.PriorityId = await ResolvePriorityIdAsync(db, ticket.UrgencyId, ticket.ImpactId);
+        ClearChangedColumns(ticket);
+
+        await db.SaveChangesAsync();
+        Snackbar.Add("AI suggestions applied.", Severity.Success);
+        Navigation.NavigateTo("/tickets");
+    }
+
+    private async Task DiscardAiSuggestionsAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var ticket = await db.Tickets.SingleAsync(t => t.Id == Id);
+        ClearChangedColumns(ticket);
+        await db.SaveChangesAsync();
+        Snackbar.Add("AI suggestions discarded.", Severity.Info);
+        Navigation.NavigateTo("/tickets");
+    }
+
+    private async Task SaveEditsAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var ticket = await db.Tickets.SingleAsync(t => t.Id == Id);
+
+        ticket.WorkTypeId = _form.WorkTypeId;
+        ticket.AffectedBusinessOrITServiceId = _form.AffectedServiceId;
+        ticket.ServiceTeamId = _form.ServiceTeamId;
+        ticket.Assignee = _form.Assignee;
+        ticket.UrgencyId = _form.UrgencyId;
+        ticket.ImpactId = _form.ImpactId;
+        ticket.StatusId = _form.StatusId;
+        ticket.Resolution = _form.Resolution;
+        ticket.PriorityId = await ResolvePriorityIdAsync(db, ticket.UrgencyId, ticket.ImpactId);
+        // The analyst resolved the field manually, so the pending AI suggestion no longer applies.
+        ClearChangedColumns(ticket);
+
+        await db.SaveChangesAsync();
+        Snackbar.Add("Edits saved.", Severity.Success);
+        Navigation.NavigateTo("/tickets");
+    }
+
+    private static void ClearChangedColumns(TicketEntity ticket)
+    {
+        ticket.WorkTypeChangedId = null;
+        ticket.AffectedBusinessOrITServiceChangedId = null;
+        ticket.BusinessEntityChangedId = null;
+        ticket.ServiceTeamChangedId = null;
+        ticket.AssigneeChanged = null;
+        ticket.PriorityChangedId = null;
+        ticket.UrgencyChangedId = null;
+        ticket.ImpactChangedId = null;
+        ticket.StatusChangedId = null;
+        ticket.ResolutionChanged = null;
+        ticket.ResolutionDateChanged = null;
+    }
+
+    private static async Task<int?> ResolvePriorityIdAsync(TriageDbContext db, int? urgencyId, int? impactId)
+    {
+        if (urgencyId is null || impactId is null)
         {
-            WorkType = suggestion.WorkType,
-            AffectedServices = string.Join(", ", suggestion.AffectedServices),
-            ServiceTeams = string.Join(", ", suggestion.ServiceTeams),
-            Assignee = suggestion.Assignee,
-            Urgency = suggestion.Urgency,
-            Impact = suggestion.Impact,
-            DraftComment = suggestion.DraftComment,
+            return null;
+        }
+
+        return await db.PriorityMappings.AsNoTracking()
+            .Where(m => m.UrgencyId == urgencyId && m.ImpactId == impactId)
+            .Select(m => (int?)m.PriorityId)
+            .SingleOrDefaultAsync();
+    }
+
+    private static async Task<List<LookupItem>> ToLookupItemsAsync<TEntity>(IQueryable<TEntity> set)
+        where TEntity : class, ILookupEntity =>
+        (await set.AsNoTracking().ToListAsync())
+            .Select(e => new LookupItem(e.Id, e.Name))
+            .OrderBy(i => i.Name)
+            .ToList();
+
+    private static string NameOf(List<LookupItem> items, int? id) =>
+        items.Find(i => i.Id == id)?.Name ?? "—";
+
+    private sealed record LookupItem(int Id, string Name);
+
+    private sealed class EditForm
+    {
+        public int WorkTypeId { get; set; }
+        public int? AffectedServiceId { get; set; }
+        public int? ServiceTeamId { get; set; }
+        public string? Assignee { get; set; }
+        public int? UrgencyId { get; set; }
+        public int? ImpactId { get; set; }
+        public int StatusId { get; set; }
+        public string? Resolution { get; set; }
+
+        public static EditForm From(TicketEntity ticket) => new()
+        {
+            WorkTypeId = ticket.WorkTypeId,
+            AffectedServiceId = ticket.AffectedBusinessOrITServiceId,
+            ServiceTeamId = ticket.ServiceTeamId,
+            Assignee = ticket.Assignee,
+            UrgencyId = ticket.UrgencyId,
+            ImpactId = ticket.ImpactId,
+            StatusId = ticket.StatusId,
+            Resolution = ticket.Resolution,
         };
     }
 }
+

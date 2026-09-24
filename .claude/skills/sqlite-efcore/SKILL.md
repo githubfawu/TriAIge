@@ -1,6 +1,6 @@
 ---
 name: sqlite-efcore
-description: SQLite with EF Core 10 in TicketTriage — TriageDbContext in TicketTriage.Infrastructure (TrainingTickets, TriageSuggestions), IDbContextFactory for Blazor Server, migrations workflow with the local dotnet-ef tool, Aspire wiring of the triage-db resource, the training.json import, SQLite type limitations (DateTimeOffset!), full-text search (FTS5) for similar-ticket retrieval, and testing with in-memory SQLite. Use whenever entities, DbContext, migrations, queries, importers or database configuration are touched.
+description: SQLite with EF Core 10 in TicketTriage — TriageDbContext in TicketTriage.Infrastructure (normalized Ticket + lookup tables, Comments, PriorityMapping), IDbContextFactory for Blazor Server, EnsureCreated-on-startup (no migrations), Aspire wiring of the triage-db resource, the training.json import, SQLite type limitations (DateTimeOffset!), full-text search (FTS5) for similar-ticket retrieval, and testing with in-memory SQLite. Use whenever entities, DbContext, queries, importers or database configuration are touched.
 ---
 
 # SQLite + EF Core 10 — TicketTriage
@@ -12,15 +12,20 @@ Packages: `Microsoft.EntityFrameworkCore.Sqlite` + `.Design` (Infrastructure), `
 ```
 TicketTriage.Infrastructure/
   InfrastructureServiceCollectionExtensions.cs  AddTriageInfrastructure(config); ConnectionStringName = "triage-db"
-  DatabaseInitializer.cs                        InitializeTriageDatabaseAsync(): MigrateAsync + training import (Development, called from Web)
-  Import/TrainingDataImporter.cs                idempotent import of training.json (skips if TrainingTickets has rows)
-  Persistence/TriageDbContext.cs                TrainingTickets (PK string Key), TriageSuggestions (Decision as string)
-  Persistence/TrainingTicketEntity.cs           persistence model + FromTicket()/ToTicket() mapping to Core.Ticket
-  Persistence/DesignTimeDbContextFactory.cs     for `dotnet ef` (uses design-time.db)
-  Persistence/Migrations/                       generated — never hand-edit (protect-files hook blocks Designer/Snapshot)
+  DatabaseInitializer.cs                        InitializeTriageDatabaseAsync(): EnsureCreatedAsync + training import (Development, called from Web)
+  Import/TrainingDataImporter.cs                idempotent import of training.json (skips if Tickets has rows), resolves raw strings to lookup FK ids
+  Persistence/TriageDbContext.cs                Ticket, Comments, PriorityMapping + 8 lookup tables (WorkType, Priority, Urgency, Impact, ServiceTeams,
+                                                 AffectedBusinessOrITServices, BusinessEntity, Status), all seeded via HasData
+  Persistence/TicketEntity.cs                   Ticket: each classification field has an original FK + a nullable "*ChangedId"/"*Changed" column
+                                                 holding the AI's pending re-classification (cleared once an analyst approves/edits/rejects it)
+  Persistence/Lookups.cs                        ILookupEntity + the 8 plain Id/Name lookup entities (independent of Core.Domain enums — different
+                                                 ordinals/labels on purpose, e.g. Impact here is Lowest..Highest, not Major..NoImpact)
+  Persistence/CommentEntity.cs                  Comments, FK TicketId (one-to-many on Ticket)
+  Persistence/PriorityMappingEntity.cs          plain UrgencyId x ImpactId -> PriorityId rows, mirrors Core.Domain.PriorityMatrix (kept in sync manually)
+  Persistence/DesignTimeDbContextFactory.cs     kept for ad-hoc `dotnet ef` inspection, not used for migrations (see below)
 ```
 
-Core stays persistence-ignorant: entities in Infrastructure map to/from Core records. Lists (`AffectedServices`, `ServiceTeams`, `Comments`) are EF primitive collections → JSON text columns.
+Core stays persistence-ignorant: `TrainingDataImporter` maps `Core.Domain.Ticket` (raw JSON strings) onto the FK lookup ids. Since the new `Impact` lookup uses different labels than the Core `Impact` enum, the importer translates by severity rank (`Major`→`Highest`, … , `No Impact`→`Lowest`).
 
 ## Registration (already done — keep the pattern)
 
@@ -32,19 +37,12 @@ services.AddDbContextFactory<TriageDbContext>(options => options.UseSqlite(conne
 - In components/services used by components: `await using var db = await dbFactory.CreateDbContextAsync(ct);`.
 - `"triage-db"` must match the AppHost resource name (`builder.AddSqlite("triage-db", ...)`), which injects `ConnectionStrings__triage-db`. Standalone Development fallback: `appsettings.Development.json` → `Data Source=triage.db`.
 
-## Migrations
+## Schema creation (no migrations)
 
-```bash
-dotnet tool restore
-dotnet ef migrations add <Name> --project src/TicketTriage.Infrastructure --startup-project src/TicketTriage.Web --output-dir Persistence/Migrations
-dotnet ef migrations list        --project src/TicketTriage.Infrastructure --startup-project src/TicketTriage.Web
-dotnet ef migrations remove      --project src/TicketTriage.Infrastructure --startup-project src/TicketTriage.Web   # only if not pushed yet
-```
-
-- Migrations are applied on Web startup in Development (`InitializeTriageDatabaseAsync`). Don't add `EnsureCreated()` anywhere.
-- Parallel migrations by two people → snapshot conflict. Rule: pull, `migrations remove` yours, `migrations add` again on top. Never hand-merge the snapshot.
-- SQLite can't `ALTER` most things; EF rebuilds the table — review generated migrations for data loss.
-- Reset locally: stop the app, delete `triage.db*`, restart (migrations + import rerun).
+- This project intentionally uses `Database.EnsureCreatedAsync()` on Web startup (`InitializeTriageDatabaseAsync`, Development only), **not** EF migrations — a deliberate deviation from the earlier migrations-based setup, chosen so lookup-table seed data (`HasData`) and the schema are always in sync with the current model.
+- Consequence: `EnsureCreated` does **not** support incremental schema changes. To change the model, delete the local `data/triage.db*` and restart (Development re-creates + re-seeds + re-imports). There is no upgrade path for a database that already has data — that's an accepted trade-off here, not a bug.
+- Lookup entity ids are fixed business values starting at 0, so their `Id` property needs `ValueGeneratedNever()` in `OnModelCreating` (`HasData` rejects `0`/default as an auto-generated key).
+- If migrations are ever reintroduced, remove `EnsureCreatedAsync()`, add back `dotnet ef migrations add ... --output-dir Persistence/Migrations`, and switch `InitializeTriageDatabaseAsync` to `MigrateAsync`.
 
 ## SQLite limitations that bite
 
@@ -52,7 +50,7 @@ dotnet ef migrations remove      --project src/TicketTriage.Infrastructure --sta
 - **`decimal`**: same limitation → use `double` or a converter.
 - **Single writer**: keep write transactions short; consider WAL (`PRAGMA journal_mode=WAL;`) and `Default Timeout=30` in the connection string if Batch and Web write at the same time.
 - `Like` is case-insensitive only for ASCII; use `.UseCollation("NOCASE")` on columns that need it.
-- Enums: store as string (`HasConversion<string>()`) like `TriageSuggestions.Decision` — readable and robust against reordering. Note Core enum *JSON* names (`"Service Request"`, `"No Impact"`) differ from C# names.
+- Enums: prefer `HasConversion<string>()` when a property is stored as a genuine C# enum — readable and robust against reordering. `Ticket`'s classification fields use plain lookup-table FKs (int ids) instead, not enum conversions. Note Core enum *JSON* names (`"Service Request"`, `"No Impact"`) differ from C# names.
 
 ## Import performance (~20k tickets)
 

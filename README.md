@@ -126,9 +126,9 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
 
 ### Database
 
-- Tables: `TrainingTickets` (list fields are JSON columns) and `TriageSuggestions` (suggestion JSON, `Decision`, analyst edits, timestamps).
-- `DateTimeOffset` values are stored as sortable 64-bit integers, because SQLite can't `ORDER BY` them natively.
-- Add a migration: `dotnet ef migrations add <Name> --project src/TicketTriage.Infrastructure --output-dir Persistence/Migrations`
+- Normalized schema: `Ticket` (each classification field has an original value and a `*Changed` column holding the AI's pending re-classification) with FK lookup tables `WorkType`, `Priority`, `Urgency`, `Impact`, `ServiceTeams`, `AffectedBusinessOrITServices`, `BusinessEntity`, `Status`; `Comments` (one-to-many on `Ticket`); `PriorityMapping` (plain Urgency x Impact -> Priority lookup, mirrors the matrix above).
+- The schema is created from the current EF model on startup (`Database.EnsureCreatedAsync`, not migrations); lookup tables are seeded via `HasData`.
+- `CreatedDate` / `ResolutionDate` are plain `DateTime` (no SQLite ordering issue, unlike `DateTimeOffset`).
 
 ## Package versions (pinned in `Directory.Packages.props`)
 
