@@ -14,6 +14,9 @@ var llm = new LlmParameters(
     AzureOpenAIApiKey: AddOptionalParameter("azure-openai-apikey", secret: true),
     OpenAIApiKey: AddOptionalParameter("openai-apikey", secret: true),
     OpenAIModel: AddOptionalParameter("openai-model", fallback: "gpt-4o-mini"),
+    ApertusEndpoint: AddOptionalParameter("apertus-endpoint", fallback: "https://api.swisscom.com/products/swiss-ai-weeks/apertus-1.5-70b/v1"),
+    ApertusApiKey: AddOptionalParameter("apertus-apikey", secret: true),
+    ApertusModel: AddOptionalParameter("apertus-model", fallback: "swiss-ai/Apertus-v1.5-70B"),
     OllamaEndpoint: AddOptionalParameter("ollama-endpoint", fallback: "http://localhost:11434"),
     OllamaModel: AddOptionalParameter("ollama-model", fallback: "qwen2.5:1.5b"));
 
@@ -48,6 +51,9 @@ internal sealed record LlmParameters(
     IResourceBuilder<ParameterResource> AzureOpenAIApiKey,
     IResourceBuilder<ParameterResource> OpenAIApiKey,
     IResourceBuilder<ParameterResource> OpenAIModel,
+    IResourceBuilder<ParameterResource> ApertusEndpoint,
+    IResourceBuilder<ParameterResource> ApertusApiKey,
+    IResourceBuilder<ParameterResource> ApertusModel,
     IResourceBuilder<ParameterResource> OllamaEndpoint,
     IResourceBuilder<ParameterResource> OllamaModel);
 
@@ -64,6 +70,9 @@ internal static class LlmResourceBuilderExtensions
             .WithEnvironment("Llm__AzureOpenAI__ApiKey", llm.AzureOpenAIApiKey)
             .WithEnvironment("Llm__OpenAI__ApiKey", llm.OpenAIApiKey)
             .WithEnvironment("Llm__OpenAI__Model", llm.OpenAIModel)
+            .WithEnvironment("Llm__Apertus__Endpoint", llm.ApertusEndpoint)
+            .WithEnvironment("Llm__Apertus__ApiKey", llm.ApertusApiKey)
+            .WithEnvironment("Llm__Apertus__Model", llm.ApertusModel)
             .WithEnvironment("Llm__Ollama__Endpoint", llm.OllamaEndpoint)
             .WithEnvironment("Llm__Ollama__Model", llm.OllamaModel);
 }

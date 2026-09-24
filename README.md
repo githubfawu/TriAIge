@@ -15,6 +15,8 @@ the suggestion. Final scoring runs in batch mode over 20 challenge tickets (JSON
 - HTTPS dev certificate: `dotnet dev-certs https --trust`
 - One LLM provider:
   - **Azure OpenAI** (default): an endpoint, a chat model deployment and an API key
+  - **OpenAI** (plain `api.openai.com`): an API key
+  - **Apertus** (Swiss AI Weeks, Swisscom-hosted, OpenAI-compatible): an API key from [The Keymaker](https://zh.ai-weeks.ch/tools/swisscom-hacker-guide) — expires after 60 minutes, expect to rotate it
   - **Ollama** (local dev): running on `http://localhost:11434` with a model pulled, e.g. `ollama pull qwen2.5:1.5b`
 - No Docker needed (SQLite is a local file).
 - `dotnet-ef` is a local tool: run `dotnet tool restore` once.
@@ -29,13 +31,26 @@ and passes them to Web and Batch as `Llm__*` environment variables.
 dotnet user-secrets set "Parameters:azure-openai-endpoint"   "https://<resource>.openai.azure.com/" --project src/TicketTriage.AppHost
 dotnet user-secrets set "Parameters:azure-openai-deployment" "<deployment-name>"                    --project src/TicketTriage.AppHost
 dotnet user-secrets set "Parameters:azure-openai-apikey"     "<api-key>"                            --project src/TicketTriage.AppHost
+
+# Plain OpenAI (api.openai.com) instead
+dotnet user-secrets set "Parameters:openai-apikey" "<api-key>"      --project src/TicketTriage.AppHost
+dotnet user-secrets set "Parameters:openai-model"  "gpt-4o-mini"    --project src/TicketTriage.AppHost   # optional (default)
+
+# Apertus instead (Swiss AI Weeks, key from The Keymaker, expires after 60 min)
+dotnet user-secrets set "Parameters:apertus-apikey" "<api-key>" --project src/TicketTriage.AppHost
 ```
 
 Every parameter is optional. If one is missing the app still starts, and the `agent-framework` health check reports **Unhealthy** with the missing keys.
 
-## Switch LLM provider (Azure OpenAI ↔ Ollama)
+## Switch LLM provider (Azure OpenAI ↔ OpenAI ↔ Apertus ↔ Ollama)
 
 ```bash
+# Use plain OpenAI
+dotnet user-secrets set "Parameters:llm-provider" "OpenAI" --project src/TicketTriage.AppHost
+
+# Use Apertus
+dotnet user-secrets set "Parameters:llm-provider" "Apertus" --project src/TicketTriage.AppHost
+
 # Use local Ollama
 dotnet user-secrets set "Parameters:llm-provider" "Ollama"        --project src/TicketTriage.AppHost
 dotnet user-secrets set "Parameters:ollama-model" "qwen2.5:1.5b"  --project src/TicketTriage.AppHost   # optional (default)
@@ -47,10 +62,15 @@ dotnet user-secrets remove "Parameters:llm-provider" --project src/TicketTriage.
 
 | AppHost parameter | App config key | Default |
 |---|---|---|
-| `llm-provider` | `Llm:Provider` | `AzureOpenAI` (`AzureOpenAI` \| `Ollama`) |
+| `llm-provider` | `Llm:Provider` | `AzureOpenAI` (`AzureOpenAI` \| `OpenAI` \| `Apertus` \| `Ollama`) |
 | `azure-openai-endpoint` | `Llm:AzureOpenAI:Endpoint` | – |
 | `azure-openai-deployment` | `Llm:AzureOpenAI:Deployment` | – |
 | `azure-openai-apikey` (secret) | `Llm:AzureOpenAI:ApiKey` | – |
+| `openai-apikey` (secret) | `Llm:OpenAI:ApiKey` | – |
+| `openai-model` | `Llm:OpenAI:Model` | `gpt-4o-mini` |
+| `apertus-endpoint` | `Llm:Apertus:Endpoint` | `https://api.swisscom.com/products/swiss-ai-weeks/apertus-1.5-70b/v1` |
+| `apertus-apikey` (secret) | `Llm:Apertus:ApiKey` | – |
+| `apertus-model` | `Llm:Apertus:Model` | `swiss-ai/Apertus-v1.5-70B` |
 | `ollama-endpoint` | `Llm:Ollama:Endpoint` | `http://localhost:11434` |
 | `ollama-model` | `Llm:Ollama:Model` | `qwen2.5:1.5b` |
 
