@@ -12,6 +12,8 @@ internal static class ChatClientFactory
     public static IChatClient Create(LlmOptions options) => options.Provider switch
     {
         LlmProvider.AzureOpenAI => CreateAzureOpenAI(options.AzureOpenAI),
+        LlmProvider.OpenAI => CreateOpenAI(options.OpenAI),
+        LlmProvider.Apertus => CreateApertus(options.Apertus),
         LlmProvider.Ollama => new OllamaApiClient(new Uri(options.Ollama.Endpoint), options.Ollama.Model),
         _ => new UnconfiguredChatClient($"Unknown LLM provider '{options.Provider}'."),
     };
@@ -45,6 +47,35 @@ internal static class ChatClientFactory
         var chatClient = new ChatClient(
             azure.Deployment,
             new ApiKeyCredential(azure.ApiKey!),
+            new OpenAIClientOptions { Endpoint = new Uri(baseUri + "/") });
+
+        return chatClient.AsIChatClient();
+    }
+
+    private static IChatClient CreateOpenAI(OpenAIOptions openAi)
+    {
+        if (string.IsNullOrWhiteSpace(openAi.ApiKey))
+        {
+            // Do not fail startup: the app must run without LLM config; the agent health check reports it instead.
+            return new UnconfiguredChatClient("OpenAI is not configured (missing Llm:OpenAI:ApiKey).");
+        }
+
+        var chatClient = new ChatClient(openAi.Model, new ApiKeyCredential(openAi.ApiKey));
+        return chatClient.AsIChatClient();
+    }
+
+    private static IChatClient CreateApertus(ApertusOptions apertus)
+    {
+        if (string.IsNullOrWhiteSpace(apertus.ApiKey))
+        {
+            // Do not fail startup: the app must run without LLM config; the agent health check reports it instead.
+            return new UnconfiguredChatClient("Apertus is not configured (missing Llm:Apertus:ApiKey).");
+        }
+
+        var baseUri = apertus.Endpoint.TrimEnd('/');
+        var chatClient = new ChatClient(
+            apertus.Model,
+            new ApiKeyCredential(apertus.ApiKey),
             new OpenAIClientOptions { Endpoint = new Uri(baseUri + "/") });
 
         return chatClient.AsIChatClient();
