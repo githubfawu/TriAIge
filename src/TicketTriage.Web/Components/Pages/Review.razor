@@ -123,14 +123,6 @@ else
                                     <MudSelectItem T="string" Value="name">@name</MudSelectItem>
                                 }
                             </MudSelect>
-                            <div>
-                                @foreach (var name in _data.AllAffectedServiceNames)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Class="mr-1 mb-1"
-                                             Color="@(name == _form.AffectedService ? Color.Primary : Color.Default)"
-                                             OnClick="@(() => _form.AffectedService = name)">@name</MudChip>
-                                }
-                            </div>
                             @if (Hint(ReviewField.AffectedService) is { } affectedServiceHint)
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Warning">@affectedServiceHint</MudText>
@@ -152,14 +144,6 @@ else
                                     <MudSelectItem T="string" Value="name">@name</MudSelectItem>
                                 }
                             </MudSelect>
-                            <div>
-                                @foreach (var name in _data.AllServiceTeamNames)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Class="mr-1 mb-1"
-                                             Color="@(name == _form.ServiceTeam ? Color.Primary : Color.Default)"
-                                             OnClick="@(() => _form.ServiceTeam = name)">@name</MudChip>
-                                }
-                            </div>
                             @if (Hint(ReviewField.ServiceTeam) is { } serviceTeamHint)
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Warning">@serviceTeamHint</MudText>

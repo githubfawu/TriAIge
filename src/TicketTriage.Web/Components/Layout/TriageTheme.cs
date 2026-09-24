@@ -13,6 +13,7 @@ public static class TriageTheme
             Primary = "#2563eb",
             Secondary = "#7c3aed",
             Tertiary = "#d97706",
+            AppbarBackground = "#2563eb",
         },
     };
 }
