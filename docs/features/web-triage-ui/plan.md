@@ -67,7 +67,7 @@ src/TicketTriage.Web/
   wwwroot/app.css                 Ä  Klassen für Ampel, Badges und Abweichungen
 tests/TicketTriage.Web.Tests/     N  xUnit v3 + FluentAssertions + bUnit 2.11.3
   Support/  TestDatabase · FakeTriagePipeline · ManualTimeProvider · TriageBunitContext · FakeHealthCheckService (S3)
-  Fixtures/challenge-sample.json  20 synthetische Tickets (nicht in data/, das der Hook schützt)
+  Fixtures/challenge-sample.json  5 synthetische Tickets (nicht in data/, das der Hook schützt)
 ```
 
 | Typ (in `Triage/`) | Verantwortung | DI |
@@ -198,7 +198,7 @@ Nie streichen: bedingte Writes, Import-Falle und die AC-Tests.
   - `FakeTriagePipeline`: Aufrufzähler, Verhalten umschaltbar (liefert / wirft / hängt bis Cancel).
   - `ManualTimeProvider`.
   - `TriageBunitContext`.
-  - `Fixtures/challenge-sample.json`: 20 Tickets mit echten Lookup-Namen, davon 1× unbekannter Service und 1× Summary > 250 Zeichen.
+  - `Fixtures/challenge-sample.json`: 5 Tickets mit echten Lookup-Namen, davon 1× unbekannter Service und 1× Summary > 250 Zeichen.
 
 **Design**
 - **Store-API**:
@@ -241,7 +241,7 @@ Nie streichen: bedingte Writes, Import-Falle und die AC-Tests.
 
 **Tests**
 - `UploadParserTests`:
-  - Fixture ergibt 20 gültige Einträge (AC1).
+  - Fixture ergibt 5 gültige Einträge (AC1).
   - Dateifehler, ohne die Datei zu lesen: kaputtes JSON, Objekt-Wurzel, leeres Array, > 200 Einträge, > 1 MB (AC3).
   - Eintrag ohne Summary ist ungültig, die übrigen bleiben gültig (AC3).
   - Doppelter Issue key.
@@ -262,7 +262,7 @@ Nie streichen: bedingte Writes, Import-Falle und die AC-Tests.
   - Ein Timeout zählt als Versuch.
   - Re-queue → Pending (AC11).
   - Ein fehlerhaftes Ticket blockiert das nächste nicht.
-- `TriageEndToEndTests`: echte DI (`AddTriageInfrastructure` + `AddTriageUi`, `ValidateScopes` und `ValidateOnBuild`) mit der `StubTriagePipeline`. Die 20 Fixture-Tickets sind in < 10 s Pending (AC2).
+- `TriageEndToEndTests`: echte DI (`AddTriageInfrastructure` + `AddTriageUi`, `ValidateScopes` und `ValidateOnBuild`) mit der `StubTriagePipeline`. Die 5 Fixture-Tickets sind in < 10 s Pending (AC2).
 - bUnit:
   - `TrafficLightTests`: pro Zustand Klasse + Icon + Text (FR12).
   - `TicketsPageTests`: Die Zeile wechselt ohne Reload Queued → Analysing → Pending (FR14). Failed zeigt «Re-queue» (AC11). Training-Tickets fehlen (FR13).
@@ -422,9 +422,9 @@ aspire run          # oder: dotnet run --project src/TicketTriage.AppHost
 **Automatisiert**: `dotnet test --solution TicketTriage.slnx`. Alle ACs haben Tests. AC11 und AC12 sind **nur** automatisiert prüfbar.
 
 **Manuell** (Demo-Skript, ~10 min; App via `aspire run` oder `dotnet run --project src/TicketTriage.Web`):
-1. Auf `/upload` die Datei `tests/TicketTriage.Web.Tests/Fixtures/challenge-sample.json` ablegen. Erwartet: 20 gültige Zeilen, Hinweise bei den 2 präparierten Tickets, ohne Training-Daten die Warnung + Checkbox, `/tickets` noch leer (AC1, AC5).
+1. Auf `/upload` die Datei `tests/TicketTriage.Web.Tests/Fixtures/challenge-sample.json` ablegen. Erwartet: 5 gültige Zeilen, Hinweise bei den 2 präparierten Tickets, ohne Training-Daten die Warnung + Checkbox, `/tickets` noch leer (AC1, AC5).
 2. Eine Datei `{}`, eine Datei ohne JSON und eine > 1 MB hochladen → Fehlermeldung, nichts gespeichert (AC3).
-3. «Save & analyse» → `/tickets` wechselt grau → blau → gelb, «20 of 20 analysed» in < 10 s (AC2).
+3. «Save & analyse» → `/tickets` wechselt grau → blau → gelb, «5 of 5 analysed» in < 10 s (AC2).
 4. Ein Pending-Ticket öffnen: Original und Vorschlag stehen nebeneinander. Urgency High + Impact Major → Priority Highest. Reset, dann Accept → grün, das nächste Ticket öffnet sich (AC6, AC7).
 5. Beim nächsten Ticket Assignee ändern → Save wird aktiv → grün. Beim übernächsten ist Reject ohne Grund blockiert, mit Grund → rot (AC8, AC9).
 6. Dasselbe Pending-Ticket in zwei Tabs öffnen und in Tab A entscheiden. Tab B wechselt live auf read-only bzw. zeigt «Already decided» (AC10).

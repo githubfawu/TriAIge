@@ -131,8 +131,8 @@ Die Web-UI zeigt heute eine rohe Liste der Tickets mit AI-Änderungen und eine R
 
 ## Acceptance Criteria
 
-- [ ] AC1: Upload einer gültigen challenge.json (20 Tickets) → Vorschau mit 20 gültigen Zeilen. In der DB ist noch nichts gespeichert.
-- [ ] AC2: Nach «Save & analyse» stehen alle 20 in `/tickets`. Die Ampel wechselt ohne Reload von grau über blau zu gelb, mit der Stub-Pipeline sind alle 20 innerhalb von 10 s gelb.
+- [ ] AC1: Upload einer gültigen Datei im challenge.json-Format (UI-Test mit 5 Tickets, Vorgabe vom 2026-09-24) → Vorschau mit 5 gültigen Zeilen. In der DB ist noch nichts gespeichert.
+- [ ] AC2: Nach «Save & analyse» stehen alle 5 in `/tickets`. Die Ampel wechselt ohne Reload von grau über blau zu gelb, mit der Stub-Pipeline sind alle 5 innerhalb von 10 s gelb.
 - [ ] AC3: Ungültiges JSON, falsche Wurzel oder eine Datei > 1 MB → Fehlermeldung, nichts gespeichert. Ein Eintrag ohne Summary ist in der Vorschau ungültig und wird nicht gespeichert.
 - [ ] AC4: Dieselbe Datei nach einem Neustart erneut hochgeladen → keine doppelten Zeilen. Nicht analysierte Tickets werden neu eingereiht, entschiedene als «already in triage» angezeigt.
 - [ ] AC5: Ohne Training-Daten (kein `Finished`-Ticket) warnt der Upload, gespeichert wird nur nach Bestätigung.
