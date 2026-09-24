@@ -13,7 +13,7 @@
 2. **Format-Check nur auf unseren Pfaden**:
    - `dotnet format --verify-no-changes` scheitert in diesem Checkout an **allen** Dateien. Grund: `core.autocrlf=true`, `.editorconfig` verlangt `end_of_line = lf`, und es gibt kein `.gitattributes` (siehe `format.log`). Das Problem gab es schon vor diesem Feature, und ein Fix läge ausserhalb des Web.
    - Die DoD prüft deshalb mit `--include src/TicketTriage.Web/ tests/TicketTriage.Web.Tests/`.
-3. **Vorbedingung `dotnet`**:
+3. **Vorbedingung `dotnet`** (erledigt: nach dem Neustart liegt SDK 10.0.401 aus `C:/Program Files/dotnet` im PATH, das Präfix ist nicht mehr nötig):
    - Das SDK 10.0.401 liegt nur unter `~/.dotnet/dotnet.exe`, **nicht im PATH** (weder Bash noch PowerShell), und `DOTNET_ROOT` ist nicht gesetzt.
    - Alle Kommandos laufen deshalb mit dem Präfix `PATH="$HOME/.dotnet:$PATH" DOTNET_ROOT="$HOME/.dotnet"`.
    - Der Format-Hook `format-csharp.sh` bricht ohne `dotnet` im PATH still ab. Die Formatierung macht deshalb der build-fixer.
