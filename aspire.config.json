@@ -1,0 +1,5 @@
+{
+    "appHost": {
+        "path": "src\\TicketTriage.AppHost\\TicketTriage.AppHost.csproj"
+    }
+}
