@@ -25,6 +25,8 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
 
     public DbSet<StatusEntity> Statuses => Set<StatusEntity>();
 
+    public DbSet<ResolutionEntity> Resolutions => Set<ResolutionEntity>();
+
     public DbSet<PriorityMappingEntity> PriorityMappings => Set<PriorityMappingEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -43,6 +45,9 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
 
         ConfigureLookup(modelBuilder.Entity<StatusEntity>(), "Status",
             (0, "New"), (1, "Reviewing"), (2, "Reviewed"), (3, "HumanRejected"), (4, "HumanApproved"), (5, "Finished"));
+
+        ConfigureLookup(modelBuilder.Entity<ResolutionEntity>(), "Resolution",
+            (0, "Cannot Reproduce"), (1, "Clarification"), (2, "Done"), (3, "Cancelled"));
 
         ConfigureLookup(modelBuilder.Entity<ServiceTeamEntity>(), "ServiceTeams",
             (0, "Service Desk"), (1, "Enterprise Applications"), (2, "Investment Operations"),
