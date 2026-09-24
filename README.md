@@ -168,3 +168,7 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
 | [docs/adr/](docs/adr/) | Architecture Decision Records, starting with [ADR-0001: five-step hybrid pipeline](docs/adr/0001-hybrid-triage-pipeline.md) |
 | `docs/features/<feature>/` | Per-feature requirements, plan and docs (created by the Claude Code workflow) |
 | [CLAUDE.md](CLAUDE.md) | Conventions and pitfalls. Also the entry point for the shared Claude Code setup in `.claude/` |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
