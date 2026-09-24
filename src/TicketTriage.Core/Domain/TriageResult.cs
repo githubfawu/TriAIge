@@ -35,6 +35,6 @@ public sealed record TriageResult
         ServiceTeams = suggestion.ServiceTeams,
         Assignee = suggestion.Assignee,
         Priority = suggestion.Priority,
-        Comments = suggestion.DraftComment is { Length: > 0 } draft ? [draft] : [],
+        Comments = !string.IsNullOrWhiteSpace(suggestion.DraftComment) ? [suggestion.DraftComment] : [],
     };
 }

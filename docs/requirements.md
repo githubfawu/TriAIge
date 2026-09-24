@@ -56,7 +56,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | Stand | Anforderungen |
 |---|---|
 | umgesetzt | FR-01, FR-10, FR-11 (TF-IDF), FR-12, FR-14, FR-15, FR-31 (Pipeline stream-basiert), FR-34, FR-35, FR-36 |
-| teilweise | FR-13 (Routing ist noch ein Stub, keine Statistik), FR-16 (nur der Kommentar, **Resolution-Status nicht umgesetzt**), FR-17 (`SimilarTicketKeys` im Vorschlag), FR-30 (`BatchRunner` ist ein TODO), FR-33 (Validator prüft Enums, Service und Kommentar, nicht alle 7 Felder), NFR-03, NFR-04, NFR-07 |
+| teilweise | FR-13 (Routing ist noch ein Stub, keine Statistik), FR-16 (nur der Kommentar, **Resolution-Status nicht umgesetzt**), FR-17 (`SimilarTicketKeys` im Vorschlag), FR-30 (`BatchRunner` liest die Challenge-Datei und schreibt `result.json` per direktem Pipeline-Aufruf, übergangsweise; Ziel ist Ingest, Worker und Export aus der DB, das ist geplant; Resolution-Status fehlt noch, Routing ist ein Stub), FR-33 (Validator prüft Enums, Service und Kommentar, nicht alle 7 Felder), NFR-03, NFR-04, NFR-07 |
 | geplant | FR-02, FR-03, FR-04, FR-05, FR-20 bis FR-29, FR-32 (Temperature 0 im Agent, Seeds offen), NFR-10 und NFR-11 (erst mit Worker relevant) |
 | entfallen | FR-18 (Confidence). Ebenso entfällt die Begründung aus FR-17 und FR-24: es gibt keine Confidence-Werte, keine `LowConfidence`-Markierung und keine Begründung pro Entscheidung |
 
@@ -105,8 +105,8 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 
 | ID | Anforderung | Prio |
 |---|---|---|
-| FR-30 | Console-App liest die Challenge-Datei und schreibt eine Result-JSON-Datei im selben Schema. | M |
-| FR-31 | Batch, Analyse-Worker und Web verwenden dieselbe `ITriagePipeline` (keine doppelte Logik). Batch ruft sie direkt auf, ohne Worker. Die Pipeline ist stream-basiert: `TriageAsync(IAsyncEnumerable<Ticket>, ct)` liefert pro Eingabeticket genau einen Vorschlag, sequenziell in Eingabereihenfolge (daneben `TriageAsync(Ticket, ct)` für ein einzelnes Ticket). Die Eingabe liefert `ITicketSource` (`IAsyncEnumerable<Ticket>`). | M |
+| FR-30 | Console-App liest die Challenge-Datei und schreibt eine Result-JSON-Datei im selben Schema. **Ziel (entschieden 2026-09-25):** Batch nimmt die Challenge-Tickets über `ITicketIngestor` auf (Status `New`, mit Herkunftsmarker) und exportiert `result.json` aus den vom Worker gespeicherten Vorschlägen (Challenge-Reihenfolge, ein Eintrag pro Ticket). So erscheinen die Tickets auch in der Web-UI und ein Mensch kann sie prüfen und finalisieren. **Aktuell:** übergangsweise direkter Pipeline-Aufruf, es wird nur `result.json` geschrieben. | M |
+| FR-31 | Batch, Analyse-Worker und Web verwenden dieselbe `ITriagePipeline` (keine doppelte Logik). Ziel: Batch nutzt sie über den Worker (Entscheidung 2026-09-25, §7 Frage 7); übergangsweise ruft Batch sie noch direkt auf. Die Pipeline ist stream-basiert: `TriageAsync(IAsyncEnumerable<Ticket>, ct)` liefert pro Eingabeticket genau einen Vorschlag, sequenziell in Eingabereihenfolge (daneben `TriageAsync(Ticket, ct)` für ein einzelnes Ticket). Die Eingabe liefert `ITicketSource` (`IAsyncEnumerable<Ticket>`). | M |
 | FR-32 | Der Output ist reproduzierbar (Temperature 0, fixe Seeds wo möglich). | S |
 | FR-33 | Eine Validierung prüft vor dem Export **alle 7 Felder** aus §2 (Work type, Affected Service, Service Team(s), Assignee, Priority, Resolution-Status, Resolution-Kommentar): gültiges Vokabular (Enums, Service-Katalog, Team-Liste, Resolution-Vokabular), Priority konsistent mit der Matrix, keine leeren Pflichtfelder. **Stand:** der `SuggestionValidator` prüft erst Work type, Urgency, Impact, mindestens einen Service und einen nicht leeren Kommentar. Team, Assignee, Priority-Konsistenz und Resolution-Status fehlen noch (der Status, weil er nicht umgesetzt ist). | M |
 | FR-34 | Fällt ein Analyseschritt aus (LLM nicht erreichbar, Timeout, Validierung schlägt fehl), zählt das als fehlgeschlagener Versuch. Die Pipeline wiederholt das Ticket bis `RetryCount` (FR-35) und liefert danach einen deterministischen Fallback (Work type und Service aus den ähnlichen Tickets, Urgency Medium, Impact Moderate, kein Kommentar). Jeder Fehlversuch wird im Fehlerprotokoll festgehalten (FR-36). Mit `StopSystemOnFailure` (FR-35) wird stattdessen beim ersten Fehler die Anwendung gestoppt. Umgesetzt in der Pipeline; es gibt keinen Status `Failed`, ein Ticket mit `Retries >= RetryCount` gilt als fehlgeschlagen. Das manuelle Neu-Einreihen (Retries zurücksetzen, Status `New`) ist noch offen ([architecture.md §5.2.2](architecture.md)). Ein Fehler blockiert die UI nie. | M |
@@ -128,7 +128,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | NFR-07 | Traces aller LLM-Aufrufe sind im Aspire Dashboard sichtbar (OpenTelemetry). | S |
 | NFR-08 | Die Priority-Matrix ist vollständig durch Unit Tests abgedeckt (25 Kombinationen). | M |
 | NFR-09 | Das Repository ist public-fähig: README mit Setup, Architektur und bekannten Limitationen. | S |
-| NFR-10 | Kein LLM-Aufruf beim Prerender oder Öffnen einer Seite. Analysen laufen nur im Worker (bzw. im Batch). | M |
+| NFR-10 | Kein LLM-Aufruf beim Prerender oder Öffnen einer Seite. Analysen laufen nur im Worker (übergangsweise auch direkt im Batch, siehe FR-30). | M |
 | NFR-11 | SQLite hat einen einzigen Writer: Transaktionen des Workers sind kurz (Claim und Speichern getrennt vom LLM-Aufruf), der Worker arbeitet in kleinen Batches. | M |
 
 ---
@@ -165,8 +165,12 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 4. **Routing-Logik:** Hängt der Assignee von Business Entity oder Work type ab? Das klären die Exploration und eine Rückfrage beim Domain Owner.
 5. **Mehrere Services pro Ticket:** Sind Listen mit mehr als einem Service im Referenz-Set zu erwarten?
 6. **Analyse-Worker:** Wie oft läuft der Timer, wie gross ist der Batch, wie hoch ist das Retry-Limit? Annahme bis zur Klärung: Timer 30 s, Batch 5, 3 Versuche.
-7. **Batch und Worker:** Soll Batch die Challenge-Tickets später ebenfalls über den Worker laufen lassen (dann gäbe es nur einen Codepfad)? Aktuell ruft Batch die Pipeline direkt auf.
+7. **Batch und Worker:** *Entschieden am 2026-09-25: ja.* Die 20 Challenge-Tickets laufen über denselben Pfad wie jedes Ticket (Ingest, Analyse-Worker, gespeicherter Vorschlag), damit sie in der Web-UI erscheinen und ein Mensch sie prüfen und finalisieren kann. Batch exportiert `result.json` aus den gespeicherten Vorschlägen (siehe FR-30, [architecture.md §5.4](architecture.md), [ADR-0002](adr/0002-background-analysis-worker.md)). Bis Ingest, Worker und Review-Persistenz existieren, ruft Batch die Pipeline übergangsweise direkt auf.
 8. **Re-Analyse:** Darf ein Analyst einen Vorschlag neu berechnen lassen, und was passiert mit einer bereits erfassten Entscheidung?
+9. **Batch-Export, Auslöser:** Wer startet den Worker und wer wartet auf ihn? Annahme: Batch wartet (Polling), bis alle Challenge-Tickets `New` verlassen haben, oder der Export wird bei Bedarf aus der Web-UI ausgelöst.
+10. **Batch-Export, unfertige Tickets:** Was steht in `result.json` für ein Ticket, das noch `New` oder fehlgeschlagen ist? Annahme: der deterministische Fallback-Vorschlag wie heute (FR-34).
+11. **Batch-Export, Werte:** KI-Vorschlag oder finale Werte des Analysten? Empfehlung: standardmässig der KI-Vorschlag, mit Schalter für die finalen menschlichen Werte.
+12. **Herkunftsmarker und Writer:** Form des Markers auf `Ticket` (Challenge vs. Trainingshistorie, Filter für den Worker) und wie sichergestellt wird, dass Batch nicht parallel zum Web-Worker analysiert (SQLite hat einen Writer). Schema-Änderung, `data/triage.db*` danach löschen.
 
 ---
 

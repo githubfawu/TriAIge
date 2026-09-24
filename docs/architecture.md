@@ -2,7 +2,7 @@
 
 How TicketTriage is built and how a ticket flows through it. Requirements: [requirements.md](requirements.md). Why it's built this way: [adr/](adr/).
 
-> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing is still a stub. Ingest, analysis worker and review persistence are planned (§5).
+> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing is still a stub. Batch (`BatchRunner`: challenge.json → pipeline → result.json) is implemented as a **transitional** direct pipeline call ([features/batch-runner](features/batch-runner/README.md)); the target is ingest → worker → export from the DB (§5.4). Ingest, analysis worker and review persistence are planned (§5).
 
 ## 1. System context
 
@@ -25,7 +25,7 @@ flowchart LR
     web --> db
     batch --> db
     web -- "IChatClient" --> llm
-    batch -- "IChatClient" --> llm
+    batch -. "IChatClient (today only, transitional)" .-> llm
     files -- "training import" --> web
     files -- "challenge.json" --> batch
     batch -- "result.json" --> jury
@@ -33,7 +33,7 @@ flowchart LR
     batch -. OTel .-> dash
 ```
 
-Web (UI and analysis worker) and Batch share **one** pipeline implementation (FR-31). The AppHost injects the connection string (`triage-db`) and the LLM configuration (`Llm__*`) from its user secrets.
+All tickets share **one** pipeline implementation (FR-31). Target (decided 2026-09-25, planned): Batch has no LLM access of its own. It ingests the challenge tickets into `triage-db`, the analysis worker in Web analyses them like any ticket, and Batch exports `result.json` from the stored suggestions (§5.4). The dotted `batch → llm` edge is today's transitional direct pipeline call and disappears once ingest, worker and review persistence exist. The AppHost injects the connection string (`triage-db`) and the LLM configuration (`Llm__*`) from its user secrets.
 
 ## 2. Projects and dependencies
 
@@ -123,9 +123,10 @@ flowchart LR
 | Orchestration | `ITriagePipeline` (analysis only, stream) | code: sequential, timeout, retry, failure log, fallback (FR-34…36) | implemented |
 | Input stream | `ITicketSource` | code | `DbTicketSource` implemented (streams `New` tickets from SQLite), registered in DI, no caller yet |
 | Failure log | `ITriageFailureStore` (`EfTriageFailureStore`) | code, `Ticket.Retries` + table `TriageFailure` | implemented |
-| Ingest | `ITicketIngestor` | code, saves tickets as `New` | planned |
-| Analysis worker | `BackgroundService` in Web | code, claims `New` tickets (lease `ClaimedAt`) and calls the pipeline (ADR-0002, §5) | planned |
+| Ingest | `ITicketIngestor` | code, saves tickets as `New`; also required for Batch (challenge tickets, §5.4) | planned |
+| Analysis worker | `BackgroundService` in Web | code, claims `New` tickets from the ingest path (lease `ClaimedAt`) and calls the pipeline (ADR-0002, §5); also required for Batch (§5.4) | planned |
 | Review persistence | `IReviewService` | code, decision + per-field edits + timestamps | planned |
+| Batch export from DB | `BatchRunner` | code, ingests challenge tickets and writes `result.json` from stored suggestions (§5.4) | planned; today direct pipeline call (transitional) |
 
 ### 4.1 Pipeline rules
 
@@ -175,7 +176,7 @@ stateDiagram-v2
 
 The ticket list (FR-20) shows `New` as "analysing" (or "queued"), and a `New` ticket whose `Retries` reached `Triage:RetryCount` as "failed". A failed ticket still shows the deterministic fallback values (FR-34). `HumanApproved` and `HumanRejected` are final. Re-opening, un-rejecting and re-analysis after a decision are out of scope (§7).
 
-> **Known risk.** Imported training tickets without a resolution also have status `New`. Once a worker reads `New` tickets through `DbTicketSource`, it would triage historical data. A source/status filter is needed before the worker is wired.
+> **Known risk.** Imported training tickets without a resolution also have status `New`. Once a worker reads `New` tickets through `DbTicketSource`, it would triage historical data. A source/status filter is needed before the worker is wired. Solution (planned, schema change): a source/batch marker on `Ticket` separates ingested tickets (including the challenge tickets, §5.4) from imported training history, and the worker claims only tickets from the ingest path. Exact shape open; delete `data/triage.db*` after the change.
 
 ### 5.2 Ingest and analysis (worker)
 
@@ -210,7 +211,7 @@ sequenceDiagram
 
 ### 5.2.1 Worker rules
 
-These rules close the gaps of the diagram above. All of them apply to the worker (planned). Batch follows the per-ticket rules of §5.4.
+These rules close the gaps of the diagram above. All of them apply to the worker (planned). Challenge tickets go through the same worker, so these rules apply to them too; the export rules of §5.4 come on top.
 
 | Rule | Definition |
 |---|---|
@@ -270,11 +271,39 @@ If the ticket changed in the meantime (another analyst decided, or the worker re
 
 ### 5.4 Batch (challenge submission)
 
-Batch does not use the worker. It calls `ITriagePipeline` directly for each challenge ticket, runs the FR-33 validation and writes `result.json`. The pipeline code is the same as in 5.2.
+**Target (decided 2026-09-25, planned).** The 20 challenge tickets take the same path as any ticket, so they also appear in the Web UI and a human can review and finalize them there:
+
+```mermaid
+flowchart LR
+    c[/challenge.json/] --> B1["Batch: ITicketIngestor<br/>(status New, challenge marker)"]
+    B1 --> D[(SQLite)]
+    D --> W["AnalysisWorker (Web)<br/>ITriagePipeline"]
+    W --> D
+    D --> B2["Batch: export stored suggestions<br/>challenge order, one entry per ticket"]
+    B2 --> r[/result.json/]
+    D --> UI["Web UI: review / finalize"]
+```
+
+- Batch no longer calls `ITriagePipeline` itself. Analysis, retry, timeout, fallback and the FR-33 validation are done by the worker path (§5.2, §5.2.1).
+- `result.json` has the same `TriageResult` shape, one entry per challenge ticket in challenge order, built from the **stored** suggestions.
+- Challenge tickets need a source/batch marker on `Ticket` so they are distinguishable from imported training history and the worker claims only ingested tickets (§5.1 known risk). Schema change: delete `data/triage.db*`.
+- The worker runs in Web. Batch never hosts it (ADR alternative "Worker inside Batch" stays rejected).
+- Needs `ITicketIngestor`, the worker and review persistence, none of which exist yet.
+
+**Open assumptions** (not confirmed, requirements §7 no. 9 to 12):
+
+| Topic | Assumption / options |
+|---|---|
+| Trigger and wait | Batch waits (polls) until all challenge tickets have left `New`, or the export runs on demand from Web. Open |
+| Ticket still `New` or failed | Export the deterministic fallback suggestion, as today (FR-34). Open |
+| What is exported | Recommendation: the AI suggestion by default, with a switch to export the analyst's final values. Open |
+| Single SQLite writer | Batch must not analyse concurrently with the Web worker. Open how this is enforced |
+
+**Current behaviour (transitional, implemented).** `BatchRunner` does not use the worker. It calls `ITriagePipeline` directly for each challenge ticket and writes `result.json`; nothing is persisted on success and the tickets do not show in the UI. It stays until ingest, worker and review persistence exist. Its per-ticket rules:
 
 - **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket. The status is kept per ticket, not per run. A ticket that fails does not stop the run.
-- **Per-ticket retry, then fallback.** Retry, per-ticket timeout and fallback are done by the pipeline itself (`Triage:RetryCount`, `Triage:TicketTimeoutSeconds`, FR-34), so Batch gets one suggestion per ticket from the stream. The console summary that reports failed tickets and the call of the stream from `BatchRunner` are not implemented yet. The file is never partial. With `Triage:StopSystemOnFailure` the run is aborted on the first failure (development only).
-- **No self-retrieval.** kNN excludes the ticket itself (see §4.1).
+- **Per-ticket retry, then fallback.** Retry, per-ticket timeout and fallback are done by the pipeline itself (`Triage:RetryCount`, `Triage:TicketTimeoutSeconds`, FR-34), so Batch gets one suggestion per ticket from the stream. `BatchRunner` calls the stream, counts fallbacks (blank `DraftComment`) and prints a console summary (tickets, fallback/failed, duration, output path) plus a warning if every ticket fell back. Bad input or an aborted run exits with 1 and writes nothing; the file is written atomically (temp file + move), so it is never partial. Details: [features/batch-runner](features/batch-runner/README.md). With `Triage:StopSystemOnFailure` the run is aborted on the first failure (development only).
+- **No self-retrieval.** kNN excludes the ticket itself (see §4.1). This holds on both paths.
 - **Data ready.** Batch checks the same "data ready" marker as the worker and stops with a clear message if data preparation is not complete.
 
 ## 6. Cross-cutting

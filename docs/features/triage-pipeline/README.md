@@ -22,7 +22,7 @@ Replaces `StubTriagePipeline` with a real, stream-based `ITriagePipeline` in `Ti
 
 ### Stream
 
-Tickets are processed **sequentially in input order**, one suggestion per input ticket. One failing ticket never ends the stream. Empty input gives empty output. No caller uses the stream overload yet (`BatchRunner` is still a TODO).
+Tickets are processed **sequentially in input order**, one suggestion per input ticket. One failing ticket never ends the stream. Empty input gives empty output. `BatchRunner` calls the stream overload ([batch-runner](../batch-runner/README.md)); `DbTicketSource` has no caller yet.
 
 ### Per ticket
 
@@ -145,7 +145,7 @@ Not covered: end-to-end run against a real `data/triage.db`, Web/Batch wiring (n
 
 ### Other
 
-- `DbTicketSource` exists but no caller of the stream overload; `BatchRunner` and the analysis worker are not wired to it.
+- `DbTicketSource` exists but has no caller; `BatchRunner` streams the challenge file directly (transitional; target is ingest → worker → export, ADR-0002) and the analysis worker is not wired yet.
 - Backoff is fixed, not exponential; no jitter.
 - After exhaustion a persisted `Retries` value is not cleared until a later success; a fallback ticket stays at the limit.
 - Classify and draft are LLM-backed (Agents), routing is still `StubRoutingResolver`, so team and assignee are not real yet.

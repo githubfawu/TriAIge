@@ -60,7 +60,7 @@ Planned order of later cycles (one small feature each, each its own `/orchestrat
 ## Out of Scope
 
 - Routing statistics, resolution status field, real `ServiceCatalog` names, full FR-33 validator, embeddings, cleaning of resolution templates.
-- Running Batch through the analysis worker (open question §7 no. 7).
+- Running Batch through the analysis worker (open question §7 no. 7, decided 2026-09-25 as the target; out of scope for this cycle).
 - Web UI, ingest, review persistence.
 - Accuracy evaluation on a held-out training slice. Success is smoke and consistency checks only.
 - Changing the result schema. It is dictated by the organizers and is still unknown.

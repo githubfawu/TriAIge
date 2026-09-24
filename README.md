@@ -9,7 +9,7 @@ the suggestion. Final scoring runs in batch mode over 20 challenge tickets (JSON
 > **Status: work in progress.** Implemented: priority matrix, training import, the triage pipeline (retry, timeout, validation,
 > fallback, failure log), similar-ticket retrieval (in-memory TF-IDF), LLM classifier and resolution drafter, LLM provider switch.
 > Still stubs / planned: routing statistics (team + assignee), embeddings and hybrid retrieval, real `ServiceCatalog` names,
-> ticket ingest, analysis worker, review persistence (HITL) and the batch output (`BatchRunner` is a TODO).
+> ticket ingest, analysis worker, review persistence (HITL) and resolution status in the batch output. `BatchRunner` runs end to end via a direct, transitional pipeline call (target: ingest → worker → export from the DB, [ADR-0002](docs/adr/0002-background-analysis-worker.md); [docs/features/batch-runner](docs/features/batch-runner/README.md)).
 > Per-component status: [docs/architecture.md](docs/architecture.md).
 
 ## Prerequisites
