@@ -66,3 +66,10 @@ public sealed class StatusEntity : ILookupEntity
 
     public string Name { get; set; } = "";
 }
+
+public sealed class ResolutionEntity : ILookupEntity
+{
+    public int Id { get; set; }
+
+    public string Name { get; set; } = "";
+}
