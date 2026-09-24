@@ -44,7 +44,7 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
             (0, "Lowest"), (1, "Low"), (2, "Medium"), (3, "High"), (4, "Highest"));
 
         ConfigureLookup(modelBuilder.Entity<StatusEntity>(), "Status",
-            (0, "New"), (1, "Reviewing"), (2, "Reviewed"), (3, "HumanRejected"), (4, "HumanApproved"), (5, "Finished"));
+            (0, "New"), (1, "Reviewing"), (2, "Reviewed"), (3, "HumanRejected"), (4, "HumanApproved"));
 
         ConfigureLookup(modelBuilder.Entity<ResolutionEntity>(), "Resolution",
             (0, "Cannot Reproduce"), (1, "Clarification"), (2, "Done"), (3, "Cancelled"));
