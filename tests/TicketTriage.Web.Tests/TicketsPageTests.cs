@@ -76,5 +76,11 @@ public sealed class TicketsPageTests : TriageBunitContext
 
         public Task<IReadOnlyList<TicketBoardRow>> GetRowsAsync(CancellationToken cancellationToken) =>
             Task.FromResult(Rows);
+
+        public Task<TicketReviewData?> GetReviewAsync(int id, CancellationToken cancellationToken) =>
+            Task.FromResult<TicketReviewData?>(null);
+
+        public Task<int?> GetNextPendingIdAsync(int excludeId, CancellationToken cancellationToken) =>
+            Task.FromResult<int?>(null);
     }
 }

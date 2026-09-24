@@ -31,6 +31,20 @@ public sealed class LookupCatalog(IDbContextFactory<TriageDbContext> dbFactory)
 
     public IReadOnlyDictionary<int, string> PriorityNames { get; private set; } = EmptyById;
 
+    public IReadOnlyDictionary<int, string> UrgencyNames { get; private set; } = EmptyById;
+
+    public IReadOnlyDictionary<int, string> ImpactNames { get; private set; } = EmptyById;
+
+    public IReadOnlyDictionary<int, string> ServiceTeamNames { get; private set; } = EmptyById;
+
+    public IReadOnlyDictionary<int, string> AffectedServiceNames { get; private set; } = EmptyById;
+
+    /// <summary>Full, sorted list of team names for the Review page's chips (Slice 2 design).</summary>
+    public IReadOnlyList<string> AllServiceTeamNames { get; private set; } = [];
+
+    /// <summary>Full, sorted list of service names for the Review page's chips (Slice 2 design).</summary>
+    public IReadOnlyList<string> AllAffectedServiceNames { get; private set; } = [];
+
     public int NewStatusId { get; private set; }
 
     public int HumanApprovedStatusId { get; private set; }
@@ -66,6 +80,12 @@ public sealed class LookupCatalog(IDbContextFactory<TriageDbContext> dbFactory)
 
             WorkTypeNames = _workTypeIds.ToDictionary(pair => pair.Value, pair => pair.Key);
             PriorityNames = _priorityIds.ToDictionary(pair => pair.Value, pair => pair.Key);
+            UrgencyNames = _urgencyIds.ToDictionary(pair => pair.Value, pair => pair.Key);
+            ImpactNames = _impactIds.ToDictionary(pair => pair.Value, pair => pair.Key);
+            ServiceTeamNames = _serviceTeamIds.ToDictionary(pair => pair.Value, pair => pair.Key);
+            AffectedServiceNames = _affectedServiceIds.ToDictionary(pair => pair.Value, pair => pair.Key);
+            AllServiceTeamNames = [.. _serviceTeamIds.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
+            AllAffectedServiceNames = [.. _affectedServiceIds.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
 
             NewStatusId = RequireStatus("New");
             HumanApprovedStatusId = RequireStatus("HumanApproved");

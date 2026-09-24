@@ -1,0 +1,27 @@
+@* Field-ownership badge (FR17/AC14): colour and text are always shown together. CSS classes are the contract the
+   ReviewPageTests assert on: owner-code / owner-llm / owner-mixed. *@
+
+<span class="owner-badge @CssClass">@Text</span>
+
+@code {
+    [Parameter, EditorRequired]
+    public ReviewField Field { get; set; }
+
+    private FieldOwner Owner => Field.Owner();
+
+    private string CssClass => Owner switch
+    {
+        FieldOwner.Code => "owner-code",
+        FieldOwner.Llm => "owner-llm",
+        FieldOwner.LlmAndCode => "owner-mixed",
+        _ => "owner-code",
+    };
+
+    private string Text => Owner switch
+    {
+        FieldOwner.Code => "Code",
+        FieldOwner.Llm => "LLM",
+        FieldOwner.LlmAndCode => "LLM + Code",
+        _ => "Code",
+    };
+}

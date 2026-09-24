@@ -15,6 +15,7 @@ public static class TriageUiServiceCollectionExtensions
         services.AddScoped<ISuggestionWriter, SuggestionWriter>();
         services.AddScoped<IUploadIngestService, UploadIngestService>();
         services.AddScoped<ITriageBoardQuery, TriageBoardQuery>();
+        services.AddScoped<IReviewDecisionService, ReviewDecisionService>();
 
         services.Configure<TriageWorkerOptions>(configuration.GetSection(TriageWorkerOptions.SectionName));
         services.AddHostedService<TriageWorker>();

@@ -1,14 +1,41 @@
-@* Reusable state indicator (FR12): colour, icon and text always shown together. Dot variant for the /tickets
-   list; the large 3-light variant for the Review header is added in Slice 2. *@
+@* Reusable state indicator (FR12): colour, icon and text are always shown together, in both variants. *@
 
-<div class="tl-dot tl-@CssSuffix">
-    <MudIcon Icon="@Icon" Size="Size.Small" />
-    <span>@Text</span>
-</div>
+@if (Large)
+{
+    <div class="tl-large">
+        <div class="tl-large-lights">
+            <span class="tl-large-light tl-large-red @(IsRed ? "tl-large-lit" : "")"></span>
+            <span class="tl-large-light tl-large-yellow @(IsYellow ? "tl-large-lit" : "")"></span>
+            <span class="tl-large-light tl-large-green @(IsGreen ? "tl-large-lit" : "")"></span>
+        </div>
+        <div class="tl-large-label tl-@CssSuffix">
+            <MudIcon Icon="@Icon" />
+            <span>@Text</span>
+        </div>
+    </div>
+}
+else
+{
+    <div class="tl-dot tl-@CssSuffix">
+        <MudIcon Icon="@Icon" Size="Size.Small" />
+        <span>@Text</span>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired]
     public TicketDisplayState State { get; set; }
+
+    /// <summary>Large 3-light variant for the Review header (Slice 2); the dot variant (default) is used in the
+    /// /tickets list.</summary>
+    [Parameter]
+    public bool Large { get; set; }
+
+    private bool IsRed => State is TicketDisplayState.Failed or TicketDisplayState.Rejected;
+
+    private bool IsYellow => State is TicketDisplayState.Queued or TicketDisplayState.Analysing or TicketDisplayState.Pending;
+
+    private bool IsGreen => State is TicketDisplayState.Approved;
 
     private string CssSuffix => State switch
     {

@@ -94,6 +94,58 @@ public sealed class UploadIngestServiceTests : IAsyncLifetime
         significant.Should().NotBeNull(); // "Significant" (TT-1001) translated to DB "High".
     }
 
+    [Fact]
+    public async Task EnqueueExistingAsync_NewTicketNotInQueue_RegistersItInStore_PerFR10()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        int ticketId;
+        await using (var db = _database.CreateContext())
+        {
+            var ticket = new TicketEntity
+            {
+                WorkTypeId = _catalog.DefaultWorkTypeId,
+                Summary = "Ticket that fell out of the RAM queue",
+                StatusId = _catalog.NewStatusId,
+                CreatedDate = DateTime.UtcNow,
+            };
+            db.Tickets.Add(ticket);
+            await db.SaveChangesAsync(cancellationToken);
+            ticketId = ticket.Id;
+        }
+
+        var enqueued = await _service.EnqueueExistingAsync(ticketId, cancellationToken);
+
+        enqueued.Should().BeTrue();
+        _store.Get(ticketId).Should().NotBeNull();
+        _store.Get(ticketId)!.Phase.Should().Be(QueuePhase.Queued);
+    }
+
+    [Fact]
+    public async Task EnqueueExistingAsync_TicketAlreadyHasSuggestion_ReturnsFalse_DoesNotRegister()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        int ticketId;
+        await using (var db = _database.CreateContext())
+        {
+            var ticket = new TicketEntity
+            {
+                WorkTypeId = _catalog.DefaultWorkTypeId,
+                Summary = "Already analysed",
+                StatusId = _catalog.NewStatusId,
+                CreatedDate = DateTime.UtcNow,
+                WorkTypeChangedId = _catalog.DefaultWorkTypeId,
+            };
+            db.Tickets.Add(ticket);
+            await db.SaveChangesAsync(cancellationToken);
+            ticketId = ticket.Id;
+        }
+
+        var enqueued = await _service.EnqueueExistingAsync(ticketId, cancellationToken);
+
+        enqueued.Should().BeFalse();
+        _store.Get(ticketId).Should().BeNull();
+    }
+
     private async Task SeedFinishedTicketAsync(CancellationToken cancellationToken)
     {
         await using var db = _database.CreateContext();

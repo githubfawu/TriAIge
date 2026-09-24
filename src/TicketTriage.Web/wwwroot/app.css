@@ -82,3 +82,82 @@ h1:focus {
 .tt-row-clickable {
     cursor: pointer;
 }
+
+/* Large 3-light traffic light (Review header, FR12/Slice 2). */
+.tl-large {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tl-large-lights {
+    display: inline-flex;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 8px;
+    background: #1f2937;
+}
+
+.tl-large-light {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    opacity: 0.25;
+}
+
+.tl-large-red {
+    background: #dc2626;
+}
+
+.tl-large-yellow {
+    background: #facc15;
+}
+
+.tl-large-green {
+    background: #16a34a;
+}
+
+.tl-large-lit {
+    opacity: 1;
+    box-shadow: 0 0 8px currentColor;
+}
+
+.tl-large-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+
+/* Field-ownership badges (FR17/AC14): colours match architecture.md §4/FR23, distinct from the traffic light. */
+.owner-badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.owner-code {
+    color: #2563eb;
+    background: #dbeafe;
+}
+
+.owner-llm {
+    color: #d97706;
+    background: #fef3c7;
+}
+
+.owner-mixed {
+    color: #7c3aed;
+    background: #ede9fe;
+}
+
+/* Highlights a review field whose current value differs from the ticket's original (FR15). */
+.tt-field-changed {
+    border-left: 3px solid #7c3aed;
+    padding-left: 8px;
+}

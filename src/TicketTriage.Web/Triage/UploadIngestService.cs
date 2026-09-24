@@ -37,6 +37,11 @@ public interface IUploadIngestService
     /// Refuses (<see cref="SaveOutcome.ConfirmationRequired"/>) if training data looks missing and the caller
     /// hasn't confirmed (FR5).</summary>
     Task<SaveResult> SaveAndEnqueueAsync(UploadPreview preview, bool confirmedWithoutTrainingData, CancellationToken cancellationToken);
+
+    /// <summary>"Analyse now" (FR10): re-enqueues a New ticket that isn't in the RAM queue (e.g. after a restart),
+    /// rebuilding its Core <see cref="Ticket"/> from the DB row. No-op (returns false) if the ticket is gone, no
+    /// longer New, or already has a suggestion.</summary>
+    Task<bool> EnqueueExistingAsync(int ticketId, CancellationToken cancellationToken);
 }
 
 /// <summary>Scoped per-request service backing the Upload page. DB-hit deduplication (FR4) is out of scope for
@@ -96,6 +101,22 @@ public sealed class UploadIngestService(
         }
 
         return new SaveResult(SaveOutcome.Saved, validEntries.Count, uploadId);
+    }
+
+    public async Task<bool> EnqueueExistingAsync(int ticketId, CancellationToken cancellationToken)
+    {
+        await catalog.EnsureLoadedAsync(cancellationToken);
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var entity = await db.Tickets.AsNoTracking().SingleOrDefaultAsync(t => t.Id == ticketId, cancellationToken);
+        if (entity is null || entity.StatusId != catalog.NewStatusId || TicketPredicates.HasSuggestionCompiled(entity))
+        {
+            return false;
+        }
+
+        var ticket = TicketMapper.ToTicket(entity, catalog);
+        store.Register(ticketId, $"#{ticketId}", ticket, uploadId: 0);
+        return true;
     }
 
     private static UploadPreviewEntry ToPreviewEntry(ParsedTicketEntry parsed, LookupCatalog catalog, TimeProvider timeProvider)

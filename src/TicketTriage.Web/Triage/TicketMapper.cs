@@ -183,6 +183,33 @@ public static class TicketMapper
         return (values, notInCatalog);
     }
 
+    /// <summary>Rebuilds a Core <see cref="Ticket"/> from a DB row (FR10 "Analyse now": a New ticket that fell out
+    /// of the RAM queue, e.g. after a restart, needs a <see cref="Ticket"/> to re-enqueue). The issue key is
+    /// synthesized as <c>#{id}</c> since the original upload's key lived only in RAM and may be gone.</summary>
+    public static Ticket ToTicket(TicketEntity entity, LookupCatalog catalog) => new()
+    {
+        Key = $"#{entity.Id}",
+        Summary = entity.Summary,
+        Description = entity.Description,
+        WorkType = catalog.WorkTypeNames.GetValueOrDefault(entity.WorkTypeId),
+        AffectedServices = entity.AffectedBusinessOrITServiceId is { } serviceId
+            && catalog.AffectedServiceNames.TryGetValue(serviceId, out var serviceName)
+                ? [serviceName]
+                : [],
+        ServiceTeams = entity.ServiceTeamId is { } teamId && catalog.ServiceTeamNames.TryGetValue(teamId, out var teamName)
+            ? [teamName]
+            : [],
+        Assignee = entity.Assignee,
+        Urgency = entity.UrgencyId is { } urgencyId ? catalog.UrgencyNames.GetValueOrDefault(urgencyId) : null,
+        Impact = entity.ImpactId is { } impactId
+            ? TriageVocabulary.RawImpactNameFromDb(catalog.ImpactNames.GetValueOrDefault(impactId))
+            : null,
+        Priority = entity.PriorityId is { } priorityId ? catalog.PriorityNames.GetValueOrDefault(priorityId) : null,
+        Resolution = entity.Resolution,
+        Created = new DateTimeOffset(entity.CreatedDate, TimeSpan.Zero),
+        Comments = [.. entity.Comments.Select(c => c.CommentText)],
+    };
+
     private static InvalidOperationException MissingSeed(string lookup, string name) =>
         new($"Seed data is missing the '{name}' {lookup} value; check TriageDbContext.OnModelCreating.");
 }

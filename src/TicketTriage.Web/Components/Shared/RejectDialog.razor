@@ -1,0 +1,23 @@
+@* Reject-reason dialog (FR18/AC9): the reason is mandatory, Confirm stays disabled until one is entered. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-2">Please give a reason for rejecting this ticket.</MudText>
+        <MudTextField T="string" Label="Reason" @bind-Value="_reason" Lines="3" AutoFocus="true" Immediate="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="@string.IsNullOrWhiteSpace(_reason)" OnClick="Confirm">Reject</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private string? _reason;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(_reason));
+}

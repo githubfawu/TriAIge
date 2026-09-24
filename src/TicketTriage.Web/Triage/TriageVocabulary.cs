@@ -55,6 +55,20 @@ public static class TriageVocabulary
     /// JSON names are exactly the keys of <see cref="ImpactNameTranslation"/>, see <c>TriageVocabularyTests</c>).</summary>
     public static string DbImpactNameFor(Impact impact) => TranslateImpactNameToDb(ToJsonName(impact))!;
 
+    private static readonly IReadOnlyDictionary<string, Impact> ImpactByDbName =
+        Enum.GetValues<Impact>().ToDictionary(DbImpactNameFor, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Reverse of <see cref="DbImpactNameFor"/>: DB Impact lookup name -&gt; Core <see cref="Impact"/>.
+    /// Used to build the Review form's baseline from already-resolved DB names (Leitplanke 2/Slice 2).</summary>
+    public static Impact? ParseImpactFromDbName(string? dbImpactName) =>
+        dbImpactName is not null && ImpactByDbName.TryGetValue(dbImpactName, out var impact) ? impact : null;
+
+    /// <summary>Raw/Core JSON impact name for a DB Impact lookup name (round-trips <see cref="TranslateImpactNameToDb"/>);
+    /// falls back to the DB name itself if it isn't one of the five known DB labels (defensive, should not happen
+    /// for seeded data).</summary>
+    public static string? RawImpactNameFromDb(string? dbImpactName) =>
+        ParseImpactFromDbName(dbImpactName) is { } impact ? ToJsonName(impact) : dbImpactName;
+
     [return: NotNullIfNotNull(nameof(value))]
     public static string? Truncate(string? value, int maxLength) =>
         value is null ? null : value.Length <= maxLength ? value : value[..maxLength];

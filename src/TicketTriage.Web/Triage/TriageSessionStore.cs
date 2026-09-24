@@ -55,12 +55,13 @@ public sealed record UploadProgress(int Analysed, int Total);
 /// <see cref="TriageWorker"/> and every Blazor circuit (NFR7), so every mutation happens under <see cref="_gate"/>
 /// and the <see cref="TicketChanged"/> event fires outside the lock, with each handler isolated (Leitplanke 8).
 /// </summary>
-public sealed class TriageSessionStore(ILogger<TriageSessionStore> logger)
+public sealed class TriageSessionStore(ILogger<TriageSessionStore> logger, TimeProvider? timeProvider = null)
 {
     private readonly object _gate = new();
     private readonly Dictionary<int, TriageSessionEntry> _entries = [];
     private readonly TriageWorkQueue _queue = new();
     private readonly SemaphoreSlim _signal = new(0);
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     /// <summary>Raised (outside the lock) whenever a ticket's RAM state changes.</summary>
     public event Action<int>? TicketChanged;
@@ -202,6 +203,40 @@ public sealed class TriageSessionStore(ILogger<TriageSessionStore> logger)
         if (enqueued)
         {
             _signal.Release();
+        }
+
+        RaiseChanged(ticketId);
+    }
+
+    /// <summary>Records when a ticket's review page was first opened (Slice 3 metrics), once per ticket - a
+    /// no-op if it's already set or the ticket isn't (or no longer) in RAM.</summary>
+    public void MarkOpened(int ticketId)
+    {
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(ticketId, out var entry) && entry.FirstOpenedAt is null)
+            {
+                _entries[ticketId] = entry with { FirstOpenedAt = _timeProvider.GetUtcNow() };
+            }
+        }
+    }
+
+    /// <summary>Records a human review decision (FR18/FR19) after the DB write has committed: edited field names
+    /// for Slice 3's per-field edit metrics (AC8), and the reject reason (RAM-only, Technical Constraints). Raises
+    /// <see cref="TicketChanged"/> so any other open tab on the same ticket (AC10) refreshes live.</summary>
+    public void RecordDecision(int ticketId, ReviewDecision decision, IReadOnlyList<ReviewField> editedFields, string? rejectReason)
+    {
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(ticketId, out var entry))
+            {
+                _entries[ticketId] = entry with
+                {
+                    DecidedAt = _timeProvider.GetUtcNow(),
+                    RejectReason = rejectReason,
+                    EditedFields = [.. editedFields.Select(f => f.ToString())],
+                };
+            }
         }
 
         RaiseChanged(ticketId);
