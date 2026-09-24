@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Triage/TriageWorkQueue.cs (and other internal-only types) are exercised directly by the test project. -->
+    <InternalsVisibleTo Include="TicketTriage.Web.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MudBlazor" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
   </ItemGroup>

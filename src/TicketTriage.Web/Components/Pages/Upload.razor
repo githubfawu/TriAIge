@@ -1,0 +1,79 @@
+@page "/upload"
+@using Microsoft.AspNetCore.Components.Forms
+
+<PageTitle>Upload · TriAIge</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Upload tickets</MudText>
+
+<MudPaper Outlined Class="pa-4 mb-4">
+    <MudFileUpload T="IBrowserFile" FilesChanged="OnFilePickedAsync" Accept=".json" DragAndDrop="true">
+        <CustomContent Context="fileUploadContext">
+            <MudButton HtmlTag="label"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.UploadFile"
+                       OnClick="@fileUploadContext.OpenFilePickerAsync">
+                Choose challenge.json
+            </MudButton>
+        </CustomContent>
+    </MudFileUpload>
+    <MudText Typo="Typo.caption" Class="d-block mt-2">JSON array of tickets, up to 1 MB / 200 tickets.</MudText>
+</MudPaper>
+
+@if (_loadingPreview)
+{
+    <MudProgressLinear Indeterminate Color="Color.Primary" Class="mb-4" />
+}
+
+@if (_fileError is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_fileError</MudAlert>
+}
+else if (_preview is { FileError: { } fileError })
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@fileError</MudAlert>
+}
+else if (_preview is { } preview)
+{
+    <MudText Typo="Typo.body1" Class="mb-2">@preview.ValidCount of @preview.Entries.Count valid.</MudText>
+
+    @if (!preview.TrainingDataPresent)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-2">
+            No training data found (no ticket with status "Finished" yet). Saving now may permanently block the
+            later training-data import.
+        </MudAlert>
+        <MudCheckBox T="bool" @bind-Value="_confirmWithoutTrainingData" Label="Save anyway" Class="mb-2" />
+    }
+
+    <MudSimpleTable Dense Bordered Class="mb-4">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Issue key</th>
+                <th>Summary</th>
+                <th>Valid</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var entry in preview.Entries)
+            {
+                <tr>
+                    <td>@(entry.Index + 1)</td>
+                    <td>@entry.IssueKey</td>
+                    <td>@entry.Summary</td>
+                    <td>@(entry.IsValid ? "Valid" : "Invalid")</td>
+                    <td>@string.Join(" ", entry.Reason is { } reason ? [reason] : entry.Hints)</td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Success"
+               Disabled="@(!CanSave || _saving)"
+               OnClick="SaveAndAnalyseAsync">
+        Save &amp; analyse
+    </MudButton>
+}

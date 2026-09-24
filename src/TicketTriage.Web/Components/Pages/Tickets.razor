@@ -1,56 +1,71 @@
 @page "/tickets"
-@using Microsoft.EntityFrameworkCore
-@using TicketTriage.Infrastructure.Persistence
-@inject IDbContextFactory<TriageDbContext> DbFactory
-@inject NavigationManager Navigation
 
-<PageTitle>Pending review · TriAIge</PageTitle>
+<PageTitle>Tickets · TriAIge</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4">Pending review</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Tickets</MudText>
 
-<MudTable T="PendingTicketRow" Items="_pending" Loading="_pending is null" Hover Dense
-          OnRowClick="OpenReview">
-    <HeaderContent>
-        <MudTh>Ticket</MudTh>
-        <MudTh>Created</MudTh>
-        <MudTh>Status</MudTh>
-    </HeaderContent>
-    <RowTemplate>
-        <MudTd DataLabel="Ticket">@context.Summary</MudTd>
-        <MudTd DataLabel="Created">@context.CreatedDate.ToString("g")</MudTd>
-        <MudTd DataLabel="Status">@context.Status</MudTd>
-    </RowTemplate>
-    <NoRecordsContent>
-        <MudText>No tickets waiting for review.</MudText>
-    </NoRecordsContent>
-</MudTable>
-
-@code {
-    private List<PendingTicketRow>? _pending;
-
-    protected override async Task OnInitializedAsync()
-    {
-        // TODO: implement - paging, filtering, and populating suggestions via the triage pipeline.
-        await using var db = await DbFactory.CreateDbContextAsync();
-        _pending = await db.Tickets
-            .AsNoTracking()
-            .Where(t => t.WorkTypeChangedId != null || t.AffectedBusinessOrITServiceChangedId != null
-                || t.BusinessEntityChangedId != null || t.ServiceTeamChangedId != null || t.AssigneeChanged != null
-                || t.PriorityChangedId != null || t.UrgencyChangedId != null || t.ImpactChangedId != null
-                || t.StatusChangedId != null || t.ResolutionChanged != null || t.ResolutionDateChanged != null)
-            .OrderBy(t => t.CreatedDate)
-            .Join(db.Statuses, t => t.StatusId, s => s.Id,
-                (t, s) => new PendingTicketRow(t.Id, t.Summary, t.CreatedDate, s.Name))
-            .ToListAsync();
-    }
-
-    private void OpenReview(TableRowClickEventArgs<PendingTicketRow> args)
-    {
-        if (args.Item is { } item)
-        {
-            Navigation.NavigateTo($"review/{item.Id}");
-        }
-    }
-
-    private sealed record PendingTicketRow(int Id, string Summary, DateTime CreatedDate, string Status);
+@if (Progress is { Total: > 0 } progress)
+{
+    <MudText Typo="Typo.body2" Class="mb-1">@progress.Analysed of @progress.Total analysed</MudText>
+    <MudProgressLinear Color="Color.Primary" Value="@(100.0 * progress.Analysed / progress.Total)" Class="mb-4" />
 }
+
+<MudChipSet T="TicketDisplayState?" SelectedValue="_filter" SelectedValueChanged="SetFilter"
+            SelectionMode="SelectionMode.SingleSelection" Class="mb-4">
+    <MudChip Value="@((TicketDisplayState?)null)">All (@_rows.Count)</MudChip>
+    @foreach (var state in Enum.GetValues<TicketDisplayState>())
+    {
+        <MudChip Value="@((TicketDisplayState?)state)">@state (@_rows.Count(r => r.State == state))</MudChip>
+    }
+</MudChipSet>
+
+<MudDataGrid T="TicketBoardRow" Items="FilteredRows" RowClick="OpenReview" Hover Dense
+             RowClassFunc="@((TicketBoardRow _, int _) => "tt-row-clickable")">
+    <Columns>
+        <TemplateColumn Title="" Sortable="false">
+            <CellTemplate>
+                <TrafficLight State="context.Item.State" />
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="x => x.Id" Title="#" />
+        <PropertyColumn Property="x => x.IssueKey" Title="Issue key" />
+        <PropertyColumn Property="x => x.Summary" Title="Summary" />
+        <TemplateColumn Title="Work type" Sortable="false">
+            <CellTemplate>
+                @context.Item.WorkType
+                @if (context.Item.SuggestedWorkType is { } suggested)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block">suggested: @suggested</MudText>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Priority" Sortable="false">
+            <CellTemplate>
+                @context.Item.Priority
+                @if (context.Item.SuggestedPriority is { } suggestedPriority)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block">suggested: @suggestedPriority</MudText>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="State" Sortable="false">
+            <CellTemplate>
+                @context.Item.State
+                @if (context.Item.State == TicketDisplayState.Failed)
+                {
+                    <span @onclick:stopPropagation="true">
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Outlined"
+                                   Color="Color.Error"
+                                   OnClick="@(() => RequeueAsync(context.Item.Id))">
+                            Re-queue
+                        </MudButton>
+                    </span>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>
+        <MudText>No tickets in triage yet - upload a file to get started.</MudText>
+    </NoRecordsContent>
+</MudDataGrid>

@@ -36,3 +36,49 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+/* Traffic light (FR12/FR23): colours deliberately distinct from the LLM-amber badge (#d97706). */
+.tl-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.tl-queued {
+    color: #9ca3af;
+}
+
+.tl-analysing {
+    color: #0ea5e9;
+    animation: tl-pulse 1.4s ease-in-out infinite;
+}
+
+.tl-failed, .tl-rejected {
+    color: #dc2626;
+}
+
+.tl-pending {
+    color: #facc15;
+}
+
+.tl-approved {
+    color: #16a34a;
+}
+
+@keyframes tl-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+}
+
+.tt-row-clickable {
+    cursor: pointer;
+}

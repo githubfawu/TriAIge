@@ -1,0 +1,45 @@
+@* Reusable state indicator (FR12): colour, icon and text always shown together. Dot variant for the /tickets
+   list; the large 3-light variant for the Review header is added in Slice 2. *@
+
+<div class="tl-dot tl-@CssSuffix">
+    <MudIcon Icon="@Icon" Size="Size.Small" />
+    <span>@Text</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public TicketDisplayState State { get; set; }
+
+    private string CssSuffix => State switch
+    {
+        TicketDisplayState.Queued => "queued",
+        TicketDisplayState.Analysing => "analysing",
+        TicketDisplayState.Failed => "failed",
+        TicketDisplayState.Pending => "pending",
+        TicketDisplayState.Approved => "approved",
+        TicketDisplayState.Rejected => "rejected",
+        _ => "queued",
+    };
+
+    private string Icon => State switch
+    {
+        TicketDisplayState.Queued => Icons.Material.Filled.Schedule,
+        TicketDisplayState.Analysing => Icons.Material.Filled.Autorenew,
+        TicketDisplayState.Failed => Icons.Material.Filled.WarningAmber,
+        TicketDisplayState.Pending => Icons.Material.Filled.RateReview,
+        TicketDisplayState.Approved => Icons.Material.Filled.CheckCircle,
+        TicketDisplayState.Rejected => Icons.Material.Filled.Cancel,
+        _ => Icons.Material.Filled.Schedule,
+    };
+
+    private string Text => State switch
+    {
+        TicketDisplayState.Queued => "Queued",
+        TicketDisplayState.Analysing => "Analysing",
+        TicketDisplayState.Failed => "Failed",
+        TicketDisplayState.Pending => "Pending",
+        TicketDisplayState.Approved => "Approved",
+        TicketDisplayState.Rejected => "Rejected",
+        _ => State.ToString(),
+    };
+}

@@ -3,6 +3,7 @@ using TicketTriage.Agents;
 using TicketTriage.Infrastructure;
 using TicketTriage.Infrastructure.Persistence;
 using TicketTriage.Web.Components;
+using TicketTriage.Web.Triage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,7 @@ builder.AddServiceDefaults();
 
 builder.Services.AddTriageInfrastructure(builder.Configuration);
 builder.Services.AddTriageAgents(builder.Configuration);
+builder.Services.AddTriageUi(builder.Configuration);
 
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<TriageDbContext>("sqlite", tags: [Extensions.ReadyTag])

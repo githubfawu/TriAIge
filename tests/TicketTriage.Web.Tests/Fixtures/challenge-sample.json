@@ -1,0 +1,62 @@
+[
+  {
+    "Issue key": "TT-1001",
+    "Summary": "Outlook keeps freezing when opening shared calendars",
+    "Description": "Several analysts report that Outlook hangs for 30+ seconds whenever a shared calendar is opened.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": ["Outlook & Email"],
+    "Service Team(s)": ["Service Desk"],
+    "Assignee": "Dana Keller",
+    "Urgency": "High",
+    "Impact": "Significant",
+    "Priority": "High",
+    "Created": "2026-01-05T08:15:00Z",
+    "All Comments": ["Checked with IT, escalated to the mail platform team."]
+  },
+  {
+    "Issue key": "TT-1002",
+    "Summary": "Access request for the new client onboarding tool",
+    "Description": "New joiner needs access to a service that is not yet in our catalog.",
+    "Work type": "Service Request",
+    "Affected Business or IT Services": ["Not A Real Service"],
+    "Service Team(s)": ["Enterprise Applications"],
+    "Assignee": "Priya Nair",
+    "Urgency": "Medium",
+    "Impact": "Moderate",
+    "Priority": "Medium",
+    "Created": "2026-01-06T09:30:00Z",
+    "All Comments": []
+  },
+  {
+    "Issue key": "TT-1003",
+    "Summary": "Trade matching report shows duplicate entries for the Luxembourg book after the overnight batch job failed silently and nobody noticed until the morning reconciliation because the alerting rule for that specific batch step was disabled during the last maintenance window and never re-enabled by the operations team who owns the schedule",
+    "Description": "Reconciliation flagged 40 duplicate trades this morning; likely related to the failed overnight batch.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": ["Trade Matching"],
+    "Service Team(s)": ["Trading Support"],
+    "Assignee": "Marco Lindt",
+    "Urgency": "Low",
+    "Impact": "Minor",
+    "Priority": "Low",
+    "Created": "2026-01-07T07:05:00Z",
+    "All Comments": ["Batch job restarted manually.", "Duplicates removed, monitoring for recurrence."]
+  },
+  {
+    "Issue key": "TT-1004",
+    "Summary": "Fund pricing feed and NAV calculation both stalled overnight",
+    "Description": "Both the pricing feed and the NAV calculation service stopped updating after 22:00 UTC.",
+    "Work type": "Service Request",
+    "Affected Business or IT Services": ["NAV Calculation", "Fund Pricing"],
+    "Service Team(s)": ["Valuation & Pricing", "Risk & Controls"],
+    "Assignee": "Elena Vogt",
+    "Urgency": "Critical",
+    "Impact": "Major",
+    "Priority": "Highest",
+    "Created": "2026-01-08T22:45:00Z",
+    "All Comments": ["Vendor notified.", "Root cause: upstream market data outage."]
+  },
+  {
+    "Issue key": "TT-1005",
+    "Summary": "Minimal ticket with only the required fields"
+  }
+]
