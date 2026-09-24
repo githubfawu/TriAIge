@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements one vertical slice from docs/plan.md for TicketTriage, writing production code plus unit tests and a smoke test that trace back to the slice's acceptance criteria. Use once per slice during the orchestrate workflow, passing the slice definition, the relevant docs/requirements.md section, and the files it touches.
+description: Implements one vertical slice from docs/features/<feature>/plan.md for TicketTriage, writing production code plus unit tests and a smoke test that trace back to the slice's acceptance criteria. Use once per slice during the orchestrate workflow, passing the slice definition, the relevant docs/features/<feature>/requirements.md section, and the files it touches.
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 skills:
@@ -16,7 +16,7 @@ You implement exactly one vertical slice of a feature for **TicketTriage** — a
 ## Before writing anything
 
 1. Read the slice definition you were given (name, goal, files with project/layer, acceptance criteria).
-2. Read the relevant section(s) of `docs/requirements.md` — especially **Edge Cases & Failure Modes** and **Acceptance Criteria**.
+2. Read the relevant section(s) of `docs/features/<feature>/requirements.md` (and the FR/NFR IDs it references in `docs/requirements.md`) — especially **Edge Cases & Failure Modes** and **Acceptance Criteria**.
 3. Read `CLAUDE.md` for conventions and gotchas.
 4. Read 2–3 existing files in the same project/folder to match real patterns (namespaces, DI registration, error handling, naming). Existing code beats the skills when they disagree — note the disagreement in your report.
 

@@ -87,7 +87,8 @@ Agents are stateless wrappers → singleton (keyed if several). Conversation sta
 ## Prompt rules
 
 - **Ticket text is untrusted input** (summary/description from a Jira export). Put it in the *user* message, clearly delimited; `Instructions` stay static. Never interpolate ticket content into instructions.
-- Few-shot beats long instructions: include the top-k similar historical tickets (from `ISimilarTicketRetriever`) with their real work type / urgency / impact / team.
+- Few-shot beats long instructions: include the top-k similar historical tickets (from `ISimilarTicketRetriever`) with their work type, affected service and cleaned resolution. **Never** show their priority / urgency / impact — those are random in the training data and must not be learned (see `docs/requirements.md`).
+- Team and assignee come from routing statistics in code (FR-13) — don't ask the model for names.
 - Prompts live in `TicketTriage.Agents` (`<Step>Prompts.cs` or embedded `.md`) — reviewable in PRs, versioned (log a prompt version with each suggestion).
 
 ## Tools
@@ -95,8 +96,8 @@ Agents are stateless wrappers → singleton (keyed if several). Conversation sta
 ```csharp
 public sealed class ServiceLookupTool(IDbContextFactory<TriageDbContext> dbFactory)
 {
-    [Description("Returns the service teams that historically handled tickets for the given service.")]
-    public async Task<IReadOnlyList<string>> TeamsForServiceAsync(
+    [Description("Returns cleaned historical resolution comments for tickets of the given service.")]
+    public async Task<IReadOnlyList<string>> ResolutionExamplesAsync(
         [Description("Exact service name from the service catalog")] string service,
         CancellationToken cancellationToken)
     {

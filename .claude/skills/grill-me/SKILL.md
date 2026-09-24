@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: Interviews the user relentlessly about a feature, plan or idea until requirements are unambiguous, then writes them to docs/requirements.md. Use when the user says "grill me", asks to clarify or stress-test an idea before building it, or when a request is vague enough that building now would mean guessing. Runs inline in the main conversation (not in a subagent) because it needs AskUserQuestion.
+description: Interviews the user relentlessly about a feature, plan or idea until requirements are unambiguous, then writes them to docs/features/<feature>/requirements.md. Use when the user says "grill me", asks to clarify or stress-test an idea before building it, or when a request is vague enough that building now would mean guessing. Runs inline in the main conversation (not in a subagent) because it needs AskUserQuestion.
 argument-hint: "[feature or idea]"
 ---
 
@@ -14,10 +14,10 @@ Subagents can't call `AskUserQuestion` and can't pause mid-task for a reply. An 
 
 ## Process
 
-1. Before asking, read `CLAUDE.md`, `data/README.md` and relevant code so you don't ask what the repo already answers.
+1. Before asking, read `CLAUDE.md`, `docs/requirements.md` (project requirements — don't re-ask what's there), `data/README.md` and relevant code so you don't ask what the repo already answers.
 2. Ask with `AskUserQuestion`, **max 2 questions per round**, until all 7 areas are covered. Offer concrete options (with a recommended one) rather than open questions where possible.
 3. Push back on hand-wavy answers: "it should be accurate" → which metric, what target on which data? "handle errors gracefully" → which errors, and what does the user/jury see?
-4. When all areas are resolved, write `docs/requirements.md` (create `docs/` if missing).
+4. When all areas are resolved, write `docs/features/<feature>/requirements.md` (kebab-case folder; never overwrite the project-level `docs/requirements.md`).
 5. Show the file and ask for explicit approval before anything downstream starts. Silence or a topic change is not approval.
 
 ## The 7 areas
@@ -30,7 +30,7 @@ Subagents can't call `AskUserQuestion` and can't pause mid-task for a reply. An 
 6. **Edge cases & failure modes** — empty/garbage tickets, unknown categories from the model, rate limits/timeouts, prompt injection in ticket text, what must never happen.
 7. **Out of scope** — what we explicitly won't do (as important as the rest).
 
-## docs/requirements.md
+## docs/features/<feature>/requirements.md
 
 ```markdown
 # Requirements: <feature>

@@ -1,6 +1,6 @@
 ---
 name: docs-writer
-description: Writes concise English technical documentation for a completed TicketTriage feature and updates README.md when setup or usage changed. Use at the end of the orchestrate workflow with docs/plan.md, the implemented files, and any open review findings.
+description: Writes concise English technical documentation for a completed TicketTriage feature and updates README.md when setup or usage changed. Use at the end of the orchestrate workflow with docs/features/<feature>/plan.md, the implemented files, and any open review findings.
 tools: Read, Glob, Grep, Write, Edit
 model: sonnet
 ---
@@ -15,10 +15,10 @@ You write technical documentation for **TicketTriage** (.NET 10, Blazor Server, 
 
 ## Steps
 
-1. Read `docs/plan.md`, `docs/requirements.md` (if present), and `CLAUDE.md`.
+1. Read `docs/features/<feature>/plan.md`, `docs/features/<feature>/requirements.md`, `docs/architecture.md` and `CLAUDE.md`.
 2. Read all implemented files you were given.
-3. Write `docs/features/<feature-name>.md` (kebab-case) with the structure below.
-4. Check `README.md`: if the feature changes setup, configuration, commands or the demo flow, update that section directly. Purely internal changes → skip.
+3. Write `docs/features/<feature>/README.md` with the structure below.
+4. If the feature replaced a stub or changed the flow, update the status/diagrams in `docs/architecture.md`. Check `README.md`: if the feature changes setup, configuration, commands or the demo flow, update that section directly. Purely internal changes → skip.
 
 ## Structure
 

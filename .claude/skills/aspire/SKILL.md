@@ -7,46 +7,15 @@ description: Aspire 13 orchestration for TicketTriage — AppHost resource model
 
 AppHost: `src/TicketTriage.AppHost` (`Aspire.AppHost.Sdk/13.x`, `UserSecretsId: ticket-triage-apphost`). DCP and dashboard come from NuGet, so `dotnet run --project src/TicketTriage.AppHost` works without the CLI; `aspire run` is nicer (auto-finds the AppHost, prints the dashboard URL).
 
-## Target AppHost
+## The AppHost (implemented — read `AppHost.cs` before changing)
 
-```csharp
-var builder = DistributedApplication.CreateBuilder(args);
+| Resource | Wiring |
+|---|---|
+| `triage-db` | `AddSqlite("triage-db", <repo>/data, "triage.db")` |
+| `web` | `WithReference(sqlite).WaitFor(sqlite)`, `TrainingData__Path`, `WithLlmConfiguration(llm)`, `WithHttpHealthCheck("/health")` |
+| `batch` | same DB + LLM wiring, `--input data/challenge.json --output data/result.json`, `WithExplicitStart()` |
 
-var dataDir = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
-
-var db = builder.AddSqlite("triage-db", databasePath: dataDir, databaseFileName: "triage.db");
-    // .WithSqliteWeb();   // optional DB browser UI — needs Docker/Podman
-
-// Maps onto LlmOptions (section "Llm") in TicketTriage.Agents.
-var llmProvider   = builder.AddParameter("llm-provider", value: "AzureOpenAI");   // or "Ollama"
-var llmEndpoint   = builder.AddParameter("llm-endpoint");
-var llmDeployment = builder.AddParameter("llm-deployment");
-var llmApiKey     = builder.AddParameter("llm-api-key", secret: true);
-
-var web = builder.AddProject<Projects.TicketTriage_Web>("web")
-    .WithReference(db).WaitFor(db)
-    .WithLlm(llmProvider, llmEndpoint, llmDeployment, llmApiKey)
-    .WithExternalHttpEndpoints();
-
-builder.AddProject<Projects.TicketTriage_Batch>("batch")
-    .WithReference(db).WaitFor(web)                // web applies migrations + imports training data first
-    .WithLlm(llmProvider, llmEndpoint, llmDeployment, llmApiKey)
-    .WithEnvironment("Batch__DataDir", dataDir)
-    .WithExplicitStart();                          // run on demand from the dashboard
-
-builder.Build().Run();
-
-static class LlmResourceExtensions
-{
-    public static IResourceBuilder<ProjectResource> WithLlm(this IResourceBuilder<ProjectResource> project,
-        IResourceBuilder<ParameterResource> provider, IResourceBuilder<ParameterResource> endpoint,
-        IResourceBuilder<ParameterResource> deployment, IResourceBuilder<ParameterResource> apiKey) =>
-        project.WithEnvironment("Llm__Provider", provider)
-               .WithEnvironment("Llm__AzureOpenAI__Endpoint", endpoint)
-               .WithEnvironment("Llm__AzureOpenAI__Deployment", deployment)
-               .WithEnvironment("Llm__AzureOpenAI__ApiKey", apiKey);
-}
-```
+LLM parameters are created with `AddOptionalParameter(name, fallback, secret)` (missing → fallback/empty, app still starts) and mapped to `Llm__*` env vars by `WithLlmConfiguration`. Add new settings the same way instead of new ad-hoc env vars.
 
 Key rules:
 - **Resource name = connection string name** in the consumer (`"triage-db"` → `GetConnectionString("triage-db")`).
@@ -56,15 +25,13 @@ Key rules:
 
 ## Secrets & parameters
 
-Parameters read from AppHost configuration section `Parameters:<name>`:
+Parameters are read from AppHost configuration `Parameters:<name>`: `llm-provider`, `azure-openai-endpoint`, `azure-openai-deployment`, `azure-openai-apikey` (secret), `ollama-endpoint`, `ollama-model` (table in `README.md`):
 
 ```bash
-dotnet user-secrets set "Parameters:llm-endpoint"   "https://<resource>.openai.azure.com/" --project src/TicketTriage.AppHost
-dotnet user-secrets set "Parameters:llm-deployment" "<deployment>"                        --project src/TicketTriage.AppHost
-dotnet user-secrets set "Parameters:llm-api-key"    "<key>"                               --project src/TicketTriage.AppHost
+dotnet user-secrets set "Parameters:azure-openai-apikey" "<key>" --project src/TicketTriage.AppHost
 ```
 
-Missing parameters are prompted for in the dashboard. Never put keys in `appsettings*.json`, `launchSettings.json`, or code. Consumers read them via normal configuration (`Llm:AzureOpenAI:ApiKey`, bound to `LlmOptions`). Running Web standalone (without AppHost): same keys via `dotnet user-secrets set "Llm:AzureOpenAI:ApiKey" ... --project src/TicketTriage.Web`.
+Never put keys in `appsettings*.json`, `launchSettings.json`, or code. Running Web/Batch without the AppHost: set `Llm:*` keys in that project's user secrets.
 
 Missing LLM config does **not** fail startup — `ChatClientFactory` returns an `UnconfiguredChatClient` and the `ready` health check reports it (visible in the dashboard).
 

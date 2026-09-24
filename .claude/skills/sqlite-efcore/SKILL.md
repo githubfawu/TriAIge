@@ -48,7 +48,7 @@ dotnet ef migrations remove      --project src/TicketTriage.Infrastructure --sta
 
 ## SQLite limitations that bite
 
-- **`DateTimeOffset`** (e.g. `TrainingTicketEntity.Created`, `ImportedAt`): EF Core can't translate `OrderBy`/`<`/`>` on it for SQLite → runtime exception. Options: sort client-side after filtering, add a value converter to a sortable type (`DateTimeOffsetToBinaryConverter`), or store UTC `DateTime`.
+- **`DateTimeOffset`**: EF Core can't translate `OrderBy`/`<`/`>` on it for SQLite → runtime exception. The existing columns are already stored as sortable 64-bit integers via a value converter (see `TriageDbContext`) — apply the same converter to every new `DateTimeOffset` property.
 - **`decimal`**: same limitation → use `double` or a converter.
 - **Single writer**: keep write transactions short; consider WAL (`PRAGMA journal_mode=WAL;`) and `Default Timeout=30` in the connection string if Batch and Web write at the same time.
 - `Like` is case-insensitive only for ASCII; use `.UseCollation("NOCASE")` on columns that need it.
@@ -60,7 +60,9 @@ The current importer deserializes the whole file and saves once — fine at this
 
 ## Similar-ticket retrieval (replacing `StubSimilarTicketRetriever`)
 
-Cheap and strong baseline: **SQLite FTS5** over summary + description. EF tables with a string PK still have an implicit `rowid`:
+The requirements ask for **embeddings + kNN by cosine similarity** (FR-03, FR-11). Embeddings go through `IEmbeddingGenerator<string, Embedding<float>>` (M.E.AI), are cached in SQLite (e.g. `float[]` as a BLOB) and are compared in memory (20k vectors fits easily). The design is the team's call; FTS5 below is an optional keyword/hybrid add-on or fallback.
+
+Optional **SQLite FTS5** over summary + description: EF tables with a string PK still have an implicit `rowid`:
 
 ```csharp
 // in a migration (Up); Down: DROP TABLE TrainingTicketsFts

@@ -158,3 +158,13 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
   If that's a concern, [AwesomeAssertions](https://www.nuget.org/packages/AwesomeAssertions) is a drop-in, Apache-2.0 fork.
 - **ServiceCatalog:** the 20 service names are placeholders (`TODO Critical Service 01` …); the 14/6 split is correct.
   Replace them with the real catalog. Likewise, check the `Ticket` JSON property names against the real data files.
+
+## Documentation
+
+| Document | Content |
+|---|---|
+| [docs/requirements.md](docs/requirements.md) | Challenge requirements (FR/NFR IDs, scoring, priority matrix, open questions) |
+| [docs/architecture.md](docs/architecture.md) | Architecture diagrams (Mermaid): context, projects, data preparation, triage pipeline, human-in-the-loop |
+| [docs/adr/](docs/adr/) | Architecture Decision Records, starting with [ADR-0001: five-step hybrid pipeline](docs/adr/0001-hybrid-triage-pipeline.md) |
+| `docs/features/<feature>/` | Per-feature requirements, plan and docs (created by the Claude Code workflow) |
+| [CLAUDE.md](CLAUDE.md) | Conventions and pitfalls. Also the entry point for the shared Claude Code setup in `.claude/` |

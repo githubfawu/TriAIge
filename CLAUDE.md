@@ -1,9 +1,11 @@
 # TicketTriage (TriAIge)
 
-AI hackathon project: triage IT service-desk tickets (insurance company, Jira export) with AI agents. Historical tickets (`data/training.json`, ~20k) are imported into SQLite and used as knowledge; the 20 challenge tickets (`data/challenge.json`) are triaged by `TicketTriage.Batch`, which writes `data/result.json` for scoring. `TicketTriage.Web` is the Blazor Server UI where analysts browse tickets and review (approve / edit / reject) AI suggestions.
+Swiss {ai} Weeks hackathon (Swiss Life challenge): triage IT service-desk tickets (Jira export) with AI agents. Historical tickets (`data/training.json`, ~20k) are imported into SQLite and used as knowledge; the 20 challenge tickets (`data/challenge.json`) are triaged by `TicketTriage.Batch`, which writes `data/result.json` for scoring. `TicketTriage.Web` is the Blazor Server UI where analysts browse tickets and review (approve / edit / reject) AI suggestions.
 
 > Keep this file under ~200 lines. Deep technology knowledge lives in `.claude/skills/*`, not here.
 > When you learn something non-obvious (gotcha, convention, changed command), update this file or the matching skill in the same PR.
+
+**Read first:** [docs/requirements.md](docs/requirements.md) (FR/NFR IDs, scoring, priority matrix, open questions) · [docs/architecture.md](docs/architecture.md) (diagrams, stub status) · [docs/adr/](docs/adr/) (decisions). Feature work goes to `docs/features/<feature>/`.
 
 ## Stack
 
@@ -64,16 +66,17 @@ In Development, Web applies migrations and imports `training.json` on startup (`
 
 LLM config is the `Llm` section (`LlmOptions`): `Provider` = `AzureOpenAI` | `Ollama`, `AzureOpenAI:{Endpoint,Deployment,ApiKey}`, `Ollama:{Endpoint,Model}`. Missing config does **not** crash the app — `UnconfiguredChatClient` + the `ready` health check report it.
 
-Keys never go into `appsettings*.json` or code. Use user secrets (AppHost parameters once wired, see `aspire` skill; Web standalone meanwhile):
+Keys never go into `appsettings*.json` or code. They are AppHost parameters in the AppHost's user secrets, mapped to `Llm__*` env vars by `WithLlmConfiguration` in `AppHost.cs` (full table in `README.md`):
 
 ```bash
-dotnet user-secrets set "Llm:AzureOpenAI:Endpoint"   "https://<resource>.openai.azure.com/" --project src/TicketTriage.Web
-dotnet user-secrets set "Llm:AzureOpenAI:Deployment" "<deployment>"                         --project src/TicketTriage.Web
-dotnet user-secrets set "Llm:AzureOpenAI:ApiKey"     "<key>"                                --project src/TicketTriage.Web
+dotnet user-secrets set "Parameters:azure-openai-endpoint"   "https://<resource>.openai.azure.com/" --project src/TicketTriage.AppHost
+dotnet user-secrets set "Parameters:azure-openai-deployment" "<deployment>"                         --project src/TicketTriage.AppHost
+dotnet user-secrets set "Parameters:azure-openai-apikey"     "<key>"                                --project src/TicketTriage.AppHost
 ```
 
 ## Conventions
 
+- **Training data is noisy**: priority / urgency / impact in `training.json` are **random** — never use them as labels, few-shot examples or statistics. Team + assignee come from routing statistics, not the LLM (FR-13). See ADR-0001.
 - **Core decides, agents suggest**: business rules live in Core. The LLM predicts urgency + impact; **priority is always `PriorityMatrix.Resolve(urgency, impact)`**, never model output. Service names are validated against `ServiceCatalog`.
 - **Structured output** (`RunAsync<T>`) mapped onto Core records (`TicketClassification`, `RoutingDecision`) with validation + fallback — never regex-parse model text.
 - **Ticket text is untrusted** (prompt injection): user message only, never inside instructions. Never render model output as unsanitised `MarkupString`. Don't log ticket bodies/prompts at Information (personal data).
@@ -87,7 +90,7 @@ dotnet user-secrets set "Llm:AzureOpenAI:ApiKey"     "<key>"                    
 
 - `TreatWarningsAsErrors` — a new analyzer warning breaks the build. Fix the cause; don't blanket-suppress.
 - Blazor prerender runs `OnInitializedAsync` **twice** — use `[PersistentState]` or `OnAfterRenderAsync(firstRender)` for expensive/LLM work.
-- SQLite: EF can't translate `OrderBy`/comparisons on `DateTimeOffset` (`TrainingTicketEntity.Created`, `ImportedAt`) or `decimal` → runtime exception. Single writer — keep transactions short.
+- SQLite can't `ORDER BY` `DateTimeOffset`/`decimal` natively — existing `DateTimeOffset` columns are stored as sortable 64-bit integers via a converter; new ones need the same. Single writer — keep transactions short.
 - `**/Migrations/*.cs` is generated — never hand-edit; the `protect-files` hook blocks Designer/Snapshot edits.
 - `PriorityMatrix` depends on the **declaration order** of `Urgency` and `Impact` — never reorder those enums.
 - Agent Framework 1.x renamed preview APIs (`AgentThread` → `AgentSession`, `CreateAIAgent` → `AsAIAgent`) — old samples won't compile.

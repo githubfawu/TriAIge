@@ -20,9 +20,9 @@ Run the phases strictly in order. Phases delegated to a subagent run in an isola
 | Phase | Name | Model | How |
 |---|---|---|---|
 | 1 | Clarify | session | `grill-me` skill inline (needs AskUserQuestion) |
-| — | **Gate** | — | AskUserQuestion: approve `docs/requirements.md`? |
+| — | **Gate** | — | AskUserQuestion: approve `docs/features/<feature>/requirements.md`? |
 | 2 | Plan | **Opus** | Agent `Plan`, `model: opus` |
-| — | **Gate** | — | AskUserQuestion: approve `docs/plan.md`, which slice first? |
+| — | **Gate** | — | AskUserQuestion: approve `docs/features/<feature>/plan.md`, which slice first? |
 | 3+4 | Implement + Build (per slice) | Sonnet / Haiku | Agent `implementer` → Agent `build-fixer` |
 | 5 | Review | Sonnet | Agents `code-reviewer` + `security-reviewer` **in parallel** |
 | 6 | Documentation | Sonnet | Agent `docs-writer` |
@@ -37,17 +37,17 @@ Before starting: make sure the working tree is clean (`git status`) and create a
 
 ## Phase 1 — Clarify
 
-Follow the `grill-me` skill for `$ARGUMENTS`. Output: `docs/requirements.md`.
+Follow the `grill-me` skill for `$ARGUMENTS`. Output: `docs/features/<feature>/requirements.md`.
 
 **STOP** — show it and ask via `AskUserQuestion`: approve and continue, or change? No explicit approval → no Phase 2.
 
 ## Phase 2 — Plan (vertical slices)
 
-Dispatch Agent `subagent_type: "Plan"`, `model: "opus"` with `docs/requirements.md`, `CLAUDE.md`, and the list of existing projects.
+Dispatch Agent `subagent_type: "Plan"`, `model: "opus"` with `docs/features/<feature>/requirements.md`, the project-level `docs/requirements.md` + `docs/architecture.md`, `CLAUDE.md`, and the list of existing projects.
 
 A good slice cuts through all touched layers (Core → Infrastructure → Agents → Web/Batch), is testable end-to-end without the next slice, and fits one session (≈ ≤ 3 new files + tests). First slice is usually the thinnest end-to-end path (e.g. one ticket → agent → decision shown/written).
 
-Output `docs/plan.md`: architecture overview, per slice (name, goal, files with project, tests, acceptance criteria covered, complexity S/M/L), migrations needed, build commands, slice dependencies.
+Output `docs/features/<feature>/plan.md`: architecture overview, per slice (name, goal, files with project, tests, acceptance criteria covered, complexity S/M/L), migrations needed, build commands, slice dependencies.
 
 **STOP** — show the slice table, ask via `AskUserQuestion`: approve, and which slice first?
 
@@ -74,7 +74,7 @@ Only after all slices: Phase 5.
 
 ## Phase 6 — Documentation
 
-Agent `docs-writer` with `docs/plan.md`, all implemented files, and unaddressed findings.
+Agent `docs-writer` with `docs/features/<feature>/plan.md`, all implemented files, and unaddressed findings.
 
 ## Phase 7 — Project memory (team-shared `.claude/`, not personal memory)
 
