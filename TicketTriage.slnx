@@ -9,6 +9,7 @@
     <Project Path="src/TicketTriage.Web/TicketTriage.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/TicketTriage.Agents.Tests/TicketTriage.Agents.Tests.csproj" />
     <Project Path="tests/TicketTriage.Core.Tests/TicketTriage.Core.Tests.csproj" />
   </Folder>
 </Solution>
