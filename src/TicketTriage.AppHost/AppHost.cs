@@ -12,6 +12,8 @@ var llm = new LlmParameters(
     AzureOpenAIEndpoint: AddOptionalParameter("azure-openai-endpoint"),
     AzureOpenAIDeployment: AddOptionalParameter("azure-openai-deployment"),
     AzureOpenAIApiKey: AddOptionalParameter("azure-openai-apikey", secret: true),
+    OpenAIApiKey: AddOptionalParameter("openai-apikey", secret: true),
+    OpenAIModel: AddOptionalParameter("openai-model", fallback: "gpt-4o-mini"),
     OllamaEndpoint: AddOptionalParameter("ollama-endpoint", fallback: "http://localhost:11434"),
     OllamaModel: AddOptionalParameter("ollama-model", fallback: "qwen2.5:1.5b"));
 
@@ -44,6 +46,8 @@ internal sealed record LlmParameters(
     IResourceBuilder<ParameterResource> AzureOpenAIEndpoint,
     IResourceBuilder<ParameterResource> AzureOpenAIDeployment,
     IResourceBuilder<ParameterResource> AzureOpenAIApiKey,
+    IResourceBuilder<ParameterResource> OpenAIApiKey,
+    IResourceBuilder<ParameterResource> OpenAIModel,
     IResourceBuilder<ParameterResource> OllamaEndpoint,
     IResourceBuilder<ParameterResource> OllamaModel);
 
@@ -58,6 +62,8 @@ internal static class LlmResourceBuilderExtensions
             .WithEnvironment("Llm__AzureOpenAI__Endpoint", llm.AzureOpenAIEndpoint)
             .WithEnvironment("Llm__AzureOpenAI__Deployment", llm.AzureOpenAIDeployment)
             .WithEnvironment("Llm__AzureOpenAI__ApiKey", llm.AzureOpenAIApiKey)
+            .WithEnvironment("Llm__OpenAI__ApiKey", llm.OpenAIApiKey)
+            .WithEnvironment("Llm__OpenAI__Model", llm.OpenAIModel)
             .WithEnvironment("Llm__Ollama__Endpoint", llm.OllamaEndpoint)
             .WithEnvironment("Llm__Ollama__Model", llm.OllamaModel);
 }
