@@ -36,15 +36,16 @@ src/
   TicketTriage.AppHost/         wires triage-db, web, batch, LLM parameters
 tests/
   TicketTriage.Core.Tests/      xUnit v3 + FluentAssertions
+  TicketTriage.Infrastructure.Tests/  pipeline, failure store (SQLite in-memory)
 ```
 
 Dependency direction: `Core ← Infrastructure ← Agents ← {Web, Batch}`. Never reference outward.
 
 ## Triage pipeline (Core ports → implementations)
 
-`ITriagePipeline`: **retrieve similar** (`ISimilarTicketRetriever`) → **classify** (`ITicketClassifier`: work type, affected services, urgency, impact) → **route** (`IRoutingResolver`: service teams, assignee) → **prioritize** (`PriorityMatrix`, deterministic) → **draft** (`IResolutionDrafter`). Result: `TriageSuggestion`, reviewed by a human (`ReviewDecision`). The pipeline only **analyses**: tickets come in via `ITicketIngestor` (status `New`), a `BackgroundService` worker in Web pre-computes suggestions, and `IReviewService` persists decisions (ADR-0002). Opening a ticket never calls the LLM. Batch calls the pipeline directly.
+`ITriagePipeline` is stream-based (`TriageAsync(IAsyncEnumerable<Ticket>)` → one suggestion per ticket, sequential, in order; input from `ITicketSource`, no implementation yet) and implemented in `Infrastructure/Pipeline` (normalize, timeout, retry, validation, fallback, failure log via `ITriageFailureStore`; details in `docs/features/triage-pipeline/README.md`). Per ticket: **retrieve similar** (`ISimilarTicketSource`) → **classify** (`ITicketClassifier`: work type, affected services, urgency, impact) → **route** (`IRoutingResolver`: service teams, assignee) → **prioritize** (`PriorityMatrix`, deterministic) → **draft** (`IResolutionDrafter`). Result: `TriageSuggestion`, reviewed by a human (`ReviewDecision`). The pipeline only **analyses**: tickets come in via `ITicketIngestor` (status `New`), a `BackgroundService` worker in Web pre-computes suggestions, and `IReviewService` persists decisions (ADR-0002). Opening a ticket never calls the LLM. Batch calls the pipeline directly.
 
-Currently the ports are served by `Infrastructure/Stubs/*` (registered with `TryAdd*`). Replacing a stub = implement the port (LLM-backed ones in `Agents`), register it explicitly, keep a deterministic fallback.
+Currently the step ports (`ISimilarTicketSource`, classifier, router, drafter) are served by `Infrastructure/Stubs/*` (registered with `TryAdd*`); the pipeline itself is real. Replacing a stub = implement the port (LLM-backed ones in `Agents`), register it explicitly, keep a deterministic fallback.
 
 ## Commands
 
@@ -74,6 +75,8 @@ dotnet user-secrets set "Parameters:azure-openai-deployment" "<deployment>"     
 dotnet user-secrets set "Parameters:azure-openai-apikey"     "<key>"                                --project src/TicketTriage.AppHost
 ```
 
+Pipeline behaviour is the `Triage` section (`TriageOptions`, in Web/Batch `appsettings.json`): `RetryCount` (3), `StopSystemOnFailure` (false), `TicketTimeoutSeconds` (60), `SimilarTicketCount` (10), `RetryDelayMilliseconds` (500). Invalid values fail startup.
+
 ## Conventions
 
 - **Training data is noisy**: priority / urgency / impact in `training.json` are **random** — never use them as labels, few-shot examples or statistics. Team + assignee come from routing statistics, not the LLM (FR-13). See ADR-0001.
@@ -92,6 +95,8 @@ dotnet user-secrets set "Parameters:azure-openai-apikey"     "<key>"            
 - Blazor prerender runs `OnInitializedAsync` **twice** — use `[PersistentState]` or `OnAfterRenderAsync(firstRender)` for expensive/LLM work.
 - SQLite can't `ORDER BY` `DateTimeOffset`/`decimal` natively — existing `DateTimeOffset` columns are stored as sortable 64-bit integers via a converter; new ones need the same. Single writer — keep transactions short.
 - `**/Migrations/*.cs` is generated — never hand-edit; the `protect-files` hook blocks Designer/Snapshot edits.
+- The schema is created by `EnsureCreatedAsync` (no migrations in the repo): it never alters an existing DB, so **delete `data/triage.db*` after any schema change** (e.g. `Ticket.Retries`, table `TriageFailure`), else "no such column/table".
+- `Triage:StopSystemOnFailure` stops the host on a ticket's first failure and the pipeline throws `OperationCanceledException`. Dev/Batch only; never in production Web.
 - `PriorityMatrix` depends on the **declaration order** of `Urgency` and `Impact` — never reorder those enums.
 - Agent Framework 1.x renamed preview APIs (`AgentThread` → `AgentSession`, `CreateAIAgent` → `AsAIAgent`) — old samples won't compile.
 - `TriageAgent` is a **keyed** singleton: inject `[FromKeyedServices(TriageAgent.Name)] AIAgent`.

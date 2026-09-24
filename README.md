@@ -147,7 +147,8 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
 ### Database
 
 - Normalized schema: `Ticket` (each classification field has an original value and a `*Changed` column holding the AI's pending re-classification) with FK lookup tables `WorkType`, `Priority`, `Urgency`, `Impact`, `ServiceTeams`, `AffectedBusinessOrITServices`, `BusinessEntity`, `Status`; `Comments` (one-to-many on `Ticket`); `PriorityMapping` (plain Urgency x Impact -> Priority lookup, mirrors the matrix above).
-- The schema is created from the current EF model on startup (`Database.EnsureCreatedAsync`, not migrations); lookup tables are seeded via `HasData`.
+- The schema is created from the current EF model on startup (`Database.EnsureCreatedAsync`, not migrations); lookup tables are seeded via `HasData`. It never alters an existing file: after schema changes (e.g. `Ticket.Retries` and table `TriageFailure` from the triage pipeline) delete `data/triage.db*` once.
+- Pipeline behaviour (retries, timeout, stop switch) is the `Triage` section in the Web/Batch `appsettings.json`, see [docs/features/triage-pipeline](docs/features/triage-pipeline/README.md).
 - `CreatedDate` / `ResolutionDate` are plain `DateTime` (no SQLite ordering issue, unlike `DateTimeOffset`).
 
 ## Package versions (pinned in `Directory.Packages.props`)

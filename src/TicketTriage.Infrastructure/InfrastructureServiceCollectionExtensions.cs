@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Infrastructure.Import;
 using TicketTriage.Infrastructure.Persistence;
+using TicketTriage.Infrastructure.Pipeline;
 using TicketTriage.Infrastructure.Stubs;
 
 namespace TicketTriage.Infrastructure;
@@ -23,15 +24,22 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddDbContextFactory<TriageDbContext>(options => options.UseSqlite(connectionString));
 
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<ITriageFailureStore, EfTriageFailureStore>();
         services.Configure<TrainingDataOptions>(configuration.GetSection(TrainingDataOptions.SectionName));
         services.AddScoped<TrainingDataImporter>();
 
         // TODO: implement - replace the stubs with real implementations (Agents project for LLM-backed ones).
-        services.TryAddScoped<ISimilarTicketRetriever, StubSimilarTicketRetriever>();
+        services.TryAddScoped<ISimilarTicketSource, StubSimilarTicketSource>();
         services.TryAddScoped<ITicketClassifier, StubTicketClassifier>();
         services.TryAddScoped<IRoutingResolver, StubRoutingResolver>();
         services.TryAddScoped<IResolutionDrafter, StubResolutionDrafter>();
-        services.TryAddScoped<ITriagePipeline, StubTriagePipeline>();
+
+        services.AddOptions<TriageOptions>()
+            .Bind(configuration.GetSection(TriageOptions.SectionName))
+            .Validate(TriageOptions.IsValid, "Triage settings are out of range.")
+            .ValidateOnStart();
+        services.TryAddSingleton<TicketNormalizer>();
+        services.AddScoped<ITriagePipeline, TriagePipeline>();
 
         return services;
     }

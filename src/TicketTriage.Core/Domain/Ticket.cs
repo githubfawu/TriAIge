@@ -10,6 +10,10 @@ namespace TicketTriage.Core.Domain;
 /// <remarks>TODO: verify every JSON property name against the real input files once available.</remarks>
 public sealed record Ticket
 {
+    /// <summary>Database id; not part of the JSON files.</summary>
+    [JsonIgnore]
+    public int? Id { get; init; }
+
     [JsonPropertyName("Issue key")]
     public required string Key { get; init; }
 

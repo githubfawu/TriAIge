@@ -61,5 +61,7 @@ public sealed class TicketEntity
 
     public DateTime? ResolutionDateChanged { get; set; }
 
+    public int Retries { get; set; }
+
     public List<CommentEntity> Comments { get; set; } = [];
 }

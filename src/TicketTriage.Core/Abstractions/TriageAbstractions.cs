@@ -2,9 +2,16 @@ using TicketTriage.Core.Domain;
 
 namespace TicketTriage.Core.Abstractions;
 
-/// <summary>Finds the most similar historical tickets from the training set.</summary>
-public interface ISimilarTicketRetriever
+/// <summary>Supplies the tickets to triage as a stream.</summary>
+public interface ITicketSource
 {
+    IAsyncEnumerable<Ticket> GetTicketsAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>Finds the most similar historical tickets from the training set.</summary>
+public interface ISimilarTicketSource
+{
+    /// <summary>Returns up to <paramref name="top"/> similar tickets; never contains the ticket itself.</summary>
     Task<IReadOnlyList<SimilarTicket>> FindSimilarAsync(Ticket ticket, int top, CancellationToken cancellationToken);
 }
 
@@ -37,8 +44,23 @@ public interface IResolutionDrafter
         CancellationToken cancellationToken);
 }
 
+/// <summary>Persists failed triage attempts and counts retries on the ticket.</summary>
+public interface ITriageFailureStore
+{
+    /// <summary>Returns the persisted retry count, or null when the ticket has no Id or no row matches.</summary>
+    Task<int?> RecordFailureAsync(TriageFailure failure, CancellationToken cancellationToken);
+
+    /// <summary>Sets the ticket's persisted retry count back to zero after a successful triage.</summary>
+    Task ResetRetriesAsync(int ticketId, CancellationToken cancellationToken);
+}
+
 /// <summary>End-to-end triage: retrieve -> classify -> route -> prioritize -> draft.</summary>
 public interface ITriagePipeline
 {
     Task<TriageSuggestion> TriageAsync(Ticket ticket, CancellationToken cancellationToken);
+
+    /// <summary>Triages the stream sequentially and yields one suggestion per ticket in input order.</summary>
+    IAsyncEnumerable<TriageSuggestion> TriageAsync(
+        IAsyncEnumerable<Ticket> tickets,
+        CancellationToken cancellationToken);
 }

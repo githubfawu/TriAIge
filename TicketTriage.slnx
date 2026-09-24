@@ -10,6 +10,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TicketTriage.Agents.Tests/TicketTriage.Agents.Tests.csproj" />
+    <Project Path="tests/TicketTriage.Infrastructure.Tests/TicketTriage.Infrastructure.Tests.csproj" />
     <Project Path="tests/TicketTriage.Core.Tests/TicketTriage.Core.Tests.csproj" />
   </Folder>
 </Solution>

@@ -66,7 +66,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | ID | Anforderung | Prio |
 |---|---|---|
 | FR-10 | Ticket einlesen und normalisieren. Leere oder verdächtige Felder werden markiert und nicht blind übernommen. | M |
-| FR-11 | Die Top-k ähnlichen historischen Tickets werden per kNN (Cosine Similarity) ermittelt. | M |
+| FR-11 | Die Top-k ähnlichen historischen Tickets werden per kNN (Cosine Similarity) über `ISimilarTicketSource.FindSimilarAsync(ticket, top, ct)` ermittelt. Das Ticket selbst ist nie im Ergebnis. k ist konfigurierbar (FR-35). | M |
 | FR-12 | Das LLM bestimmt Work type und Affected Service mit Structured Output. Die ähnlichen Tickets dienen als Kontext, die mitgelieferten Werte nur als Hinweis. | M |
 | FR-13 | Team und Assignee werden aus den Routing-Statistiken abgeleitet, nicht frei vom LLM erfunden. | M |
 | FR-14 | Das LLM schätzt Urgency und Impact unter Berücksichtigung der Critical-Service-Liste. | M |
@@ -95,10 +95,12 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | ID | Anforderung | Prio |
 |---|---|---|
 | FR-30 | Console-App liest die Challenge-Datei und schreibt eine Result-JSON-Datei im selben Schema. | M |
-| FR-31 | Batch, Analyse-Worker und Web verwenden dieselbe `ITriagePipeline` (keine doppelte Logik). Batch ruft sie direkt auf, ohne Worker. | M |
+| FR-31 | Batch, Analyse-Worker und Web verwenden dieselbe `ITriagePipeline` (keine doppelte Logik). Batch ruft sie direkt auf, ohne Worker. Die Pipeline ist stream-basiert: `TriageAsync(IAsyncEnumerable<Ticket>, ct)` liefert pro Eingabeticket genau einen Vorschlag, sequenziell in Eingabereihenfolge (daneben `TriageAsync(Ticket, ct)` für ein einzelnes Ticket). Die Eingabe liefert `ITicketSource` (`IAsyncEnumerable<Ticket>`). | M |
 | FR-32 | Der Output ist reproduzierbar (Temperature 0, fixe Seeds wo möglich). | S |
 | FR-33 | Eine Validierung prüft vor dem Export: gültiges Vokabular, Priority konsistent mit der Matrix, keine leeren Pflichtfelder. | M |
-| FR-34 | Fällt ein Analyseschritt aus (LLM nicht erreichbar, Validierung schlägt fehl), greift ein deterministischer Fallback. Nach Erreichen des Retry-Limits wird das Ticket `Failed` und lässt sich manuell neu einreihen. Ein Fehler blockiert die UI nie. | M |
+| FR-34 | Fällt ein Analyseschritt aus (LLM nicht erreichbar, Timeout, Validierung schlägt fehl), zählt das als fehlgeschlagener Versuch. Die Pipeline wiederholt das Ticket bis `RetryCount` (FR-35) und liefert danach einen deterministischen Fallback (Work type und Service aus den ähnlichen Tickets, Urgency Medium, Impact Moderate, kein Kommentar). Jeder Fehlversuch wird im Fehlerprotokoll festgehalten (FR-36). Mit `StopSystemOnFailure` (FR-35) wird stattdessen beim ersten Fehler die Anwendung gestoppt. Umgesetzt in der Pipeline; das Setzen des Status `Failed` und das manuelle Neu-Einreihen sind noch offen (Zusammenspiel mit dem Worker: [architecture.md §5.2.1](architecture.md)). Ein Fehler blockiert die UI nie. | M |
+| FR-35 | Einstellungen der Sektion `Triage` (appsettings): `RetryCount` (Default 3), `StopSystemOnFailure` (Default false, nur Entwicklung und Batch), `TicketTimeoutSeconds` (Default 60), `SimilarTicketCount` (Default 10), `RetryDelayMilliseconds` (Default 500). Ungültige Werte verhindern den Start. | M |
+| FR-36 | Fehlerprotokoll: jeder fehlgeschlagene Versuch schreibt eine Zeile in die Tabelle `TriageFailure` (Ticket-Id, Key, Versuch, Grund, Exception-Typ, Stack-Frames, Zeitpunkt) und erhöht `Ticket.Retries`. `Retries` wird bei Erfolg auf 0 zurückgesetzt. Grund und Stack enthalten keine Exception-Meldung und keinen Ticket-Text. Ist `Retries` beim Start bereits am Limit, stoppt `StopSystemOnFailure` nicht erneut (Fallback statt Stopp). | M |
 
 ---
 

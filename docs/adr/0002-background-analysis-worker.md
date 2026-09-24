@@ -10,7 +10,7 @@ The pipeline of [ADR-0001](0001-hybrid-triage-pipeline.md) makes several LLM cal
 
 ## Decision
 
-- **Analysis is pre-computed.** `ITicketIngestor` saves incoming tickets as `New`. An `AnalysisWorker` (`BackgroundService` in `TicketTriage.Web`) claims `New` tickets in small batches (`Analysing`), calls `ITriagePipeline.AnalyzeAsync`, and stores the `TriageSuggestion` (`Suggested`).
+- **Analysis is pre-computed.** `ITicketIngestor` saves incoming tickets as `New`. An `AnalysisWorker` (`BackgroundService` in `TicketTriage.Web`) claims `New` tickets in small batches (`Analysing`), calls `ITriagePipeline.TriageAsync`, and stores the `TriageSuggestion` (`Suggested`).
 - **One trigger path.** Start, timer, manual trigger and queue signal all use the same worker code. Opening a ticket without a suggestion only enqueues it with priority and shows "analysing".
 - **The pipeline analyses only.** Ingest is `ITicketIngestor`. The analyst's decision, per-field edits, reject reason and timestamps are persisted by `IReviewService`, with a row version for concurrent edits.
 - **Failures are explicit.** A ticket that does not complete returns to `New` (partial results are discarded) and becomes `Failed` at the attempt limit. A deterministic fallback fills what it can (FR-34).

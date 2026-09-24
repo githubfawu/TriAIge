@@ -17,8 +17,9 @@ Agent Framework (MAF) is the successor of Semantic Kernel + AutoGen. Packages (v
 | `Agents/Llm/LlmOptions.cs` | Config section **`Llm`**: `Provider` (`AzureOpenAI` \| `Ollama`), `AzureOpenAI:{Endpoint,Deployment,ApiKey}`, `Ollama:{Endpoint,Model}` |
 | `Agents/Llm/ChatClientFactory.cs` | Builds the provider `IChatClient`; missing config → `UnconfiguredChatClient` (app still starts, health check reports it) |
 | `Agents/TriageAgent.cs` | `Name` + `Instructions` (system prompt) |
-| `Core/Abstractions/TriageAbstractions.cs` | Pipeline ports: `ISimilarTicketRetriever`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriagePipeline` |
-| `Infrastructure/Stubs/*` | Stub implementations registered with `TryAdd*` — replace them with real ones |
+| `Core/Abstractions/TriageAbstractions.cs` | Pipeline ports: `ITicketSource`, `ISimilarTicketSource`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriageFailureStore`, `ITriagePipeline` |
+| `Infrastructure/Pipeline/*` | Real `ITriagePipeline` (stream, per-attempt timeout, retry, `SuggestionValidator`, fallback). LLM-backed ports must throw on failure or return invalid output so the pipeline counts a failed attempt; don't swallow errors inside them. Not to be changed from Agents. |
+| `Infrastructure/Stubs/*` | Stub implementations of the step ports registered with `TryAdd*` — replace them with real ones |
 
 Pipeline: **retrieve similar → classify → route → prioritize → draft**. Consume the agent via `[FromKeyedServices(TriageAgent.Name)] AIAgent agent`.
 
@@ -87,7 +88,7 @@ Agents are stateless wrappers → singleton (keyed if several). Conversation sta
 ## Prompt rules
 
 - **Ticket text is untrusted input** (summary/description from a Jira export). Put it in the *user* message, clearly delimited; `Instructions` stay static. Never interpolate ticket content into instructions.
-- Few-shot beats long instructions: include the top-k similar historical tickets (from `ISimilarTicketRetriever`) with their work type, affected service and cleaned resolution. **Never** show their priority / urgency / impact — those are random in the training data and must not be learned (see `docs/requirements.md`).
+- Few-shot beats long instructions: include the top-k similar historical tickets (from `ISimilarTicketSource`) with their work type, affected service and cleaned resolution. **Never** show their priority / urgency / impact — those are random in the training data and must not be learned (see `docs/requirements.md`).
 - Team and assignee come from routing statistics in code (FR-13) — don't ask the model for names.
 - Prompts live in `TicketTriage.Agents` (`<Step>Prompts.cs` or embedded `.md`) — reviewable in PRs, versioned (log a prompt version with each suggestion).
 

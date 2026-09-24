@@ -27,6 +27,8 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
 
     public DbSet<PriorityMappingEntity> PriorityMappings => Set<PriorityMappingEntity>();
 
+    public DbSet<TriageFailureEntity> TriageFailures => Set<TriageFailureEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureLookup(modelBuilder.Entity<WorkTypeEntity>(), "WorkType",
@@ -106,6 +108,7 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
             ticket.Property(t => t.AssigneeChanged).HasMaxLength(50);
             ticket.Property(t => t.Resolution).HasMaxLength(500);
             ticket.Property(t => t.ResolutionChanged).HasMaxLength(500);
+            ticket.Property(t => t.Retries).HasDefaultValue(0);
             ticket.HasIndex(t => t.StatusId);
             ticket.HasIndex(t => t.CreatedDate);
 
@@ -134,6 +137,17 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
             ticket.HasOne<StatusEntity>().WithMany().HasForeignKey(t => t.StatusChangedId).OnDelete(DeleteBehavior.Restrict);
 
             ticket.HasMany(t => t.Comments).WithOne().HasForeignKey(c => c.TicketId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TriageFailureEntity>(failure =>
+        {
+            failure.ToTable("TriageFailure");
+            failure.HasKey(f => f.Id);
+            failure.Property(f => f.TicketKey).HasMaxLength(50).IsRequired();
+            failure.Property(f => f.Reason).HasMaxLength(500).IsRequired();
+            failure.Property(f => f.ExceptionType).HasMaxLength(300).IsRequired();
+            failure.Property(f => f.StackTrace).HasMaxLength(4000);
+            failure.HasIndex(f => f.TicketId);
         });
 
         modelBuilder.Entity<CommentEntity>(comment =>
