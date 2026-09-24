@@ -44,7 +44,7 @@ internal sealed class FakeClassifier(CallLog log) : ITicketClassifier
     public Task<TicketClassification> ClassifyAsync(Ticket ticket, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
     {
         log.Steps.Add("classify");
-        return Task.FromResult(new TicketClassification(WorkType.Incident, ["Email"], Urgency.High, Impact.Significant, 0.8));
+        return Task.FromResult(new TicketClassification(WorkType.Incident, ["Email"], Urgency.High, Impact.Significant));
     }
 }
 
@@ -110,7 +110,7 @@ internal sealed class ScriptedClassifier(int? failures = 0, Func<CancellationTok
             throw new InvalidOperationException(ticket.Summary);
         }
 
-        return new TicketClassification(WorkType.Incident, ["Email"], Urgency.High, Impact.Significant, 0.8);
+        return new TicketClassification(WorkType.Incident, ["Email"], Urgency.High, Impact.Significant);
     }
 }
 

@@ -12,9 +12,9 @@ Replaces `StubTriagePipeline` with a real, stream-based `ITriagePipeline` in `Ti
 
 | Port | Role |
 |---|---|
-| `ITicketSource` | `GetTicketsAsync(ct)` yields `IAsyncEnumerable<Ticket>`. **No implementation registered** (others implement it). |
-| `ISimilarTicketSource` | `FindSimilarAsync(ticket, top, ct)`; excludes the ticket itself. Replaces `ISimilarTicketRetriever`. Served by `StubSimilarTicketSource` (empty list). |
-| `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter` | unchanged, still stubs |
+| `ITicketSource` | `GetTicketsAsync(ct)` yields `IAsyncEnumerable<Ticket>`. Implemented by `DbTicketSource` (streams `New` tickets, [details](../similar-ticket-retrieval/README.md)); no caller yet. |
+| `ISimilarTicketSource` | `FindSimilarAsync(ticket, top, ct)`; excludes the ticket itself. Replaces `ISimilarTicketRetriever`. Implemented by `DbSimilarTicketSource` (TF-IDF over `Description`, [details](../similar-ticket-retrieval/README.md)); the former stub is deleted. |
+| `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter` | unchanged ports. Classifier and drafter are now LLM-backed in Agents ([triage-agent](../triage-agent/README.md)); only `IRoutingResolver` is still a stub |
 | `ITriageFailureStore` | `RecordFailureAsync(TriageFailure, ct)` returns persisted `Retries` or null; `ResetRetriesAsync(ticketId, ct)`. Implemented by `EfTriageFailureStore`. |
 | `ITriagePipeline` | `TriageAsync(Ticket, ct)` (single) and `TriageAsync(IAsyncEnumerable<Ticket>, ct)` (stream). |
 
@@ -129,15 +129,15 @@ Look at failures with any SQLite client: `SELECT * FROM TriageFailure ORDER BY I
 | Store (`EfTriageFailureStoreTests`) | Column default, increment, null/unknown id, truncation to 4000, reset, no EF dependency in pipeline types. |
 | Normalizer, registration | Flags and nulled hints; DI resolves the pipeline; options bind and reject invalid values. |
 
-Not covered: end-to-end run against a real `data/triage.db`, any real `ITicketSource`, Web/Batch wiring (no caller uses the stream yet).
+Not covered: end-to-end run against a real `data/triage.db`, Web/Batch wiring (no caller uses the stream yet).
 
 ## Known limitations
 
 ### Open points (known incongruencies, not resolved here)
 
-1. **Worker model vs new retry model.** The docs (architecture §5.1, §5.2.1, ADR-0002) describe worker-owned `Attempts`, `ClaimedAt` and status `Failed`. This feature adds `Ticket.Retries` and the `TriageFailure` table, and the pipeline retries inside one call. Neither `Attempts`/`ClaimedAt` nor a worker exist in code. How the two mechanisms interact (who counts, who sets `Failed`) is undecided.
-2. **DB statuses vs docs.** Feature requirements list the DB statuses as `Reviewing/Reviewed/HumanRejected/HumanApproved`, the docs use `New/Analysing/Suggested/Approved/Rejected/Failed`. The pipeline does not change ticket status.
-3. **Importer looks up status `"Finished"`** (`TrainingDataImporter`), which is neither of the two sets above. The DB also has no Jira key column.
+1. **Worker model vs retry model: resolved in the docs.** The pipeline's `Ticket.Retries` + `TriageFailure` is the only retry mechanism; the worker (planned) adds no counter and no `Failed` status ([architecture §5.2.2](../../architecture.md), [ADR-0002](../../adr/0002-background-analysis-worker.md)). A `ClaimedAt` lease column is planned, no worker exists in code.
+2. **DB statuses: resolved in the docs.** The docs now use the DB statuses `New/Reviewing/Reviewed/HumanRejected/HumanApproved` ([architecture §5.1](../../architecture.md)). The pipeline does not change ticket status. The semantics of `Reviewed` are still open.
+3. **Importer status and keys.** `TrainingDataImporter` now sets `HumanApproved` for tickets with a `Resolution` (it used to look up a non-existent `"Finished"` and throw); tickets without one stay `New`. The DB still has no Jira key column, so `SimilarTicketKeys` contain `DB-{Id}`, not Jira keys.
 4. **`TriageResult` has no `Resolution` field**, so the resolution status cannot be written into the result type as-is.
 5. **`ServiceCatalog` contains placeholders.** Services are not validated against it in the validator; the fallback only picks catalog services.
 6. **`TriageSuggestion.ResolutionStatus` cannot be filled**: `IResolutionDrafter` returns only a string, so the pipeline leaves it null.
@@ -145,11 +145,12 @@ Not covered: end-to-end run against a real `data/triage.db`, any real `ITicketSo
 
 ### Other
 
-- No `ITicketSource` implementation and no caller of the stream overload; `BatchRunner` and the analysis worker are not wired to it.
+- `DbTicketSource` exists but no caller of the stream overload; `BatchRunner` and the analysis worker are not wired to it.
 - Backoff is fixed, not exponential; no jitter.
 - After exhaustion a persisted `Retries` value is not cleared until a later success; a fallback ticket stays at the limit.
-- All ports still run as stubs, so real behaviour depends on the other team members' implementations.
-- Confidence / `LowConfidence` flag are not implemented.
+- Classify and draft are LLM-backed (Agents), routing is still `StubRoutingResolver`, so team and assignee are not real yet.
+- Confidence and `LowConfidence` were dropped as not needed (the `Confidence` property no longer exists).
+- Validation covers only work type, urgency, impact, one service and the comment; the target (FR-33) is all 7 output fields. Resolution status is a later cycle.
 
 ## AI assistance
 

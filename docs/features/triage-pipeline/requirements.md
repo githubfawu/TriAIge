@@ -69,20 +69,20 @@
 ## Out of Scope
 
 - The LLM agents, the data-source implementations, routing statistics, embeddings, the analysis worker, ingest, the review service, the Web UI.
-- Confidence and reasoning (dropped earlier), `LowConfidence` flag, resolution status through the pipeline.
+- Confidence, reasoning and `LowConfidence` flag (dropped, not needed). Resolution status through the pipeline (later cycle).
 - Parallel processing (sequential by decision), state transitions of the ticket status.
 - Migrations (EnsureCreated by decision).
 
 ## Requirements changes to agree with you (nothing edited yet)
 
 1. `docs/requirements.md` FR-11 / FR-31 and `architecture.md` §2/§4: `ISimilarTicketRetriever` becomes `ISimilarTicketSource`; add `ITicketSource`; pipeline is stream-based (`TriageAsync` vs docs' `AnalyzeAsync`).
-2. FR-34 / ADR-0002 / architecture §5.2.1: the worker's `Attempts`, `ClaimedAt`, `Failed` model conflicts with the new `Retries` column and failure log; both retry mechanisms must not both apply.
+2. FR-34 / ADR-0002 / architecture §5.2.1: the worker's `Attempts`, `ClaimedAt`, `Failed` model conflicted with the new `Retries` column and failure log. Resolved in the docs: the pipeline's `Retries` is the only retry model (architecture §5.2.2).
 3. New requirements for `Triage` settings (RetryCount, StopSystemOnFailure) and the failure-log table.
 4. CLAUDE.md says migrations; code uses `EnsureCreated` (also the sqlite-efcore skill).
 
 ## Incongruencies (open, yours to decide)
 
-- Docs vs DB statuses (`Analysing/Suggested/Failed` vs `Reviewing/Reviewed/HumanRejected/HumanApproved`), `TrainingDataImporter` looks up status `"Finished"`, and the DB has no Jira key column.
+- Docs vs DB statuses (`Analysing/Suggested/Failed` vs `Reviewing/Reviewed/HumanRejected/HumanApproved`): **resolved later**, the docs now follow the DB statuses (architecture §5.1). `TrainingDataImporter` looked up status `"Finished"`: fixed by the similar-ticket-retrieval feature (`HumanApproved`). The DB still has no Jira key column.
 - `IResolutionDrafter` returns only a string; the Agents-side status cannot reach the suggestion.
 - `EnsureCreated` never alters an existing database.
 

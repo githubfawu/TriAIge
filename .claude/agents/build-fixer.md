@@ -43,5 +43,5 @@ If `dotnet format --verify-no-changes` fails, run `dotnet format TicketTriage.sl
 
 - Never delete, skip (`Skip =`) or weaken a failing test to go green. If the test itself is wrong, say so explicitly in the report.
 - Never add `<NoWarn>` / `#pragma warning disable` / `TreatWarningsAsErrors=false` as a first resort.
-- Never touch generated migration files — regenerate instead.
+- There are no EF migrations (`EnsureCreated`). A "no such column/table" test or startup error means a stale local DB: delete `data/triage.db*`. If migrations are ever reintroduced, never touch generated migration files — regenerate instead.
 - Report which attempt succeeded (or that the cap was hit).

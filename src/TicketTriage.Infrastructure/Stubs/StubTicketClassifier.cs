@@ -14,6 +14,5 @@ internal sealed class StubTicketClassifier : ITicketClassifier
             WorkType.Incident,
             AffectedServices: [],
             Urgency.Medium,
-            Impact.Moderate,
-            Confidence: 0));
+            Impact.Moderate));
 }

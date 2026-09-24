@@ -3,7 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Infrastructure.Pipeline;
-using TicketTriage.Infrastructure.Stubs;
+using TicketTriage.Infrastructure.Retrieval;
+using TicketTriage.Infrastructure.Sources;
 
 namespace TicketTriage.Infrastructure.Tests;
 
@@ -25,13 +26,32 @@ public class RegistrationTests
     }
 
     [Fact]
-    public void Pipeline_ResolvesAsTriagePipeline_WithStubSimilarSource()
+    public void Pipeline_ResolvesAsTriagePipeline_WithDbSimilarSource_PerAC8()
     {
         using var provider = Build();
         using var scope = provider.CreateScope();
 
         scope.ServiceProvider.GetRequiredService<ITriagePipeline>().Should().BeOfType<TriagePipeline>();
-        scope.ServiceProvider.GetRequiredService<ISimilarTicketSource>().Should().BeOfType<StubSimilarTicketSource>();
+        scope.ServiceProvider.GetRequiredService<ISimilarTicketSource>().Should().BeOfType<DbSimilarTicketSource>();
+    }
+
+    [Fact]
+    public void TicketSource_ResolvesAsDbTicketSource_PerAC8()
+    {
+        using var provider = Build();
+
+        provider.GetRequiredService<ITicketSource>().Should().BeOfType<DbTicketSource>();
+    }
+
+    [Fact]
+    public void SimilarTicketIndexProvider_IsSingletonAcrossScopes()
+    {
+        using var provider = Build();
+        using var scope1 = provider.CreateScope();
+        using var scope2 = provider.CreateScope();
+
+        scope1.ServiceProvider.GetRequiredService<SimilarTicketIndexProvider>()
+            .Should().BeSameAs(scope2.ServiceProvider.GetRequiredService<SimilarTicketIndexProvider>());
     }
 
     [Fact]

@@ -25,7 +25,7 @@ Subagents can't call `AskUserQuestion` and can't pause mid-task for a reply. An 
 1. **Problem & motivation** — what's solved, why it matters for the challenge/demo, what happens if we skip it.
 2. **Users & context** — jury, support agent, batch run? UI (Web) or batch (`challenge.json` → `result.json`) or both?
 3. **Inputs & outputs** — exact input fields, exact output shape (for `result.json`: the organizers' contract).
-4. **Technical constraints** — which projects (Core / Infrastructure / Agents / Web / Batch), new entities or migrations, which model/provider, latency/cost budget, time budget in the hackathon.
+4. **Technical constraints** — which projects (Core / Infrastructure / Agents / Web / Batch), new entities or schema changes (no migrations, DB is recreated), which model/provider, latency/cost budget, time budget in the hackathon.
 5. **Success criteria** — measurable: accuracy on a held-out slice of `training.json`, demo flow works end-to-end, runtime < N min for the batch.
 6. **Edge cases & failure modes** — empty/garbage tickets, unknown categories from the model, rate limits/timeouts, prompt injection in ticket text, what must never happen.
 7. **Out of scope** — what we explicitly won't do (as important as the rest).
@@ -44,7 +44,7 @@ Subagents can't call `AskUserQuestion` and can't pause mid-task for a reply. An 
 ## Non-Functional Requirements
 - NFR1: ... (latency, cost, accuracy, determinism)
 ## Technical Constraints
-(projects touched, entities/migrations, model/provider, dependencies)
+(projects touched, entities/schema changes, model/provider, dependencies)
 ## Acceptance Criteria
 - [ ] AC1: ...
 ## Edge Cases & Failure Modes

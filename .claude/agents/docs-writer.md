@@ -42,7 +42,7 @@ Non-obvious choices with reasons; alternatives rejected and why; known trade-off
 | Key / Aspire parameter | Default | Description |
 
 ## Running it
-Commands (aspire run, batch run, migrations) and what to look at in the Aspire dashboard.
+Commands (aspire run, batch run, and "delete data/triage.db*" after schema changes; there are no migrations) and what to look at in the Aspire dashboard.
 
 ## Tests
 What is covered (unit / bUnit / integration), what is not and why.

@@ -36,7 +36,7 @@ public class TriagePipelineTests
 
         result.Select(s => s.TicketKey).Should().Equal("T-3", "T-1", "T-2");
         result.Should().OnlyContain(s => s.DraftComment == "draft text" && s.SimilarTicketKeys.SequenceEqual(new[] { "OLD-1" }));
-        result.Should().OnlyContain(s => s.Confidence == null && s.ResolutionStatus == null);
+        result.Should().OnlyContain(s => s.ResolutionStatus == null);
     }
 
     [Fact]

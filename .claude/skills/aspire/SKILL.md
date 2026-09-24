@@ -25,7 +25,7 @@ Key rules:
 
 ## Secrets & parameters
 
-Parameters are read from AppHost configuration `Parameters:<name>`: `llm-provider`, `azure-openai-endpoint`, `azure-openai-deployment`, `azure-openai-apikey` (secret), `ollama-endpoint`, `ollama-model` (table in `README.md`):
+Parameters are read from AppHost configuration `Parameters:<name>`: `llm-provider`, `azure-openai-endpoint`, `azure-openai-deployment`, `azure-openai-apikey` (secret), `openai-apikey` (secret), `openai-model`, `apertus-endpoint`, `apertus-apikey` (secret), `apertus-model`, `ollama-endpoint`, `ollama-model` (table in `README.md`):
 
 ```bash
 dotnet user-secrets set "Parameters:azure-openai-apikey" "<key>" --project src/TicketTriage.AppHost
@@ -37,7 +37,7 @@ Missing LLM config does **not** fail startup — `ChatClientFactory` returns an 
 
 ## Optional: local models with Ollama
 
-Simplest: run Ollama locally and set `Llm:Provider=Ollama` (defaults: `http://localhost:11434`, `qwen2.5:1.5b`). Container-managed alternative: `CommunityToolkit.Aspire.Hosting.Ollama` (`builder.AddOllama("ollama").WithDataVolume().AddModel(...)`) — needs Docker, and the endpoint must then be passed into `Llm__Ollama__Endpoint`. Good for free iterations; use Azure OpenAI for the scored run.
+Simplest: run Ollama locally and set `Llm:Provider=Ollama` (defaults: `http://localhost:11434`, `qwen2.5:1.5b`). Container-managed alternative: `CommunityToolkit.Aspire.Hosting.Ollama` (`builder.AddOllama("ollama").WithDataVolume().AddModel(...)`) — needs Docker, and the endpoint must then be passed into `Llm__Ollama__Endpoint`. Good for free iterations; use a larger hosted model (Azure OpenAI, OpenAI or Apertus) for the scored run.
 
 ## ServiceDefaults
 

@@ -29,7 +29,7 @@ The LLM-dependent steps of the triage pipeline (ADR-0001 steps 2, 4 and 5) are s
 - NFR2: No ticket body or prompt is logged at Information level (CLAUDE.md conventions).
 - NFR3: All methods are async with `CancellationToken`; no `.Result` / `.Wait()`.
 - NFR4: Warnings are errors; the code passes `dotnet build` and `dotnet format --verify-no-changes`.
-- NFR5: Confidence values and reasoning are **not produced** (dropped by decision; FR-17 and FR-18 are not implemented by the agent).
+- NFR5: Confidence values and reasoning are **not produced and not needed** (dropped by decision; FR-18 removed, the reasoning part of FR-17 dropped).
 
 ## Technical Constraints
 
@@ -52,9 +52,9 @@ The LLM-dependent steps of the triage pipeline (ADR-0001 steps 2, 4 and 5) are s
 
 ## Edge Cases & Failure Modes
 
-- LLM unreachable, timeout, cancellation → the agent throws; pipeline/worker retry, `Failed` and fallback logic (arch §5.2.1) applies.
+- LLM unreachable, timeout, cancellation → the agent throws; the pipeline's retry and fallback logic applies (arch §5.2.2).
 - Invalid enum / unknown service in model output → throws (no repair retry, no fallback inside the agent).
-- Empty or garbage ticket text → the agent still calls the model; the pipeline decides on low confidence. (Assumption, see Open Questions.)
+- Empty or garbage ticket text → the agent still calls the model; the pipeline's validation and fallback apply (no confidence flag). (Assumption, see Open Questions.)
 - Prompt injection in ticket text → text only in the user message, output validated, never rendered raw.
 - No similar tickets → no assignee voice, no persona, generic professional tone.
 - Multiple services → the classifier returns a list; routing uses the first (arch §4.1, handled outside the agent).
@@ -63,7 +63,7 @@ The LLM-dependent steps of the triage pipeline (ADR-0001 steps 2, 4 and 5) are s
 
 - Retrieval, routing, prioritization code, pipeline orchestration, worker, ingest, review service.
 - Any change to Core contracts, Infrastructure, Web, Batch, database or AppHost.
-- Confidence, reasoning, `LowConfidence` flag, reference-ticket explanation (FR-17, FR-18).
+- Confidence, reasoning and `LowConfidence` flag (not needed, removed from the requirements). The resolution status in the pipeline result is a later cycle.
 - Azure OpenAI and Ollama testing.
 - Held-out accuracy measurement (data files absent, not requested).
 - Streaming into the UI, autonomous tool-using agents.
@@ -71,14 +71,14 @@ The LLM-dependent steps of the triage pipeline (ADR-0001 steps 2, 4 and 5) are s
 ## Incongruencies reported to the user (not resolved by the agent)
 
 1. `IResolutionDrafter` returns `string` only; FR-16 needs status + comment. Handled by an Agents-side type (decision taken).
-2. `TriageSuggestion` has no reasoning / LowConfidence fields (FR-17, FR-18, arch §4.1). Dropped for the agent by decision; docs still list them.
+2. `TriageSuggestion` has no reasoning / LowConfidence fields (FR-17, FR-18, arch §4.1). **Resolved:** confidence and reasoning are dropped everywhere (docs and code).
 3. `LlmOptions` has `OpenAI` and `Apertus`; docs and CLAUDE.md say Azure OpenAI / Ollama.
 4. `ServiceCatalog` has `TODO` placeholder names; the DB lookup and requirements §6 have the real ones.
 5. Docs call `AnalyzeAsync`; the port is `TriageAsync`.
 6. Resolution vocabulary: requirements `cannot reproduce` vs enum `Cannot Reproduce`.
 7. `TriageResult` has no Resolution / Urgency / Impact; open question 2 (output schema) is unresolved.
 8. `data/` has no `training.json` / `challenge.json`.
-9. DB ticket status (`New, Reviewing, Reviewed, HumanRejected, HumanApproved`) vs docs (`New, Analysing, Suggested, Approved, Rejected, Failed`).
+9. DB ticket status (`New, Reviewing, Reviewed, HumanRejected, HumanApproved`) vs docs (`New, Analysing, Suggested, Approved, Rejected, Failed`). **Resolved later:** the docs now follow the DB statuses (architecture §5.1). Incongruencies 3, 5 and 14 are also resolved, see [README.md](README.md).
 10. The DB has no Resolution lookup.
 11. DB Impact lookup (`Lowest…Highest`, 0 = Lowest) vs Core `Impact` (`Major…NoImpact`, 0 = Major).
 12. DB `ServiceTeams` contains a team named "Affected Business or IT Services".

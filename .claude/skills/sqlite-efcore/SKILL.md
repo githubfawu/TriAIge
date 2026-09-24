@@ -57,9 +57,11 @@ services.AddDbContextFactory<TriageDbContext>(options => options.UseSqlite(conne
 
 The current importer deserializes the whole file and saves once — fine at this size. If it gets slow or memory-heavy: stream with `JsonSerializer.DeserializeAsyncEnumerable<Ticket>(...)`, `ChangeTracker.AutoDetectChangesEnabled = false`, `AddRange` + `SaveChangesAsync` + `ChangeTracker.Clear()` per 1,000 rows. Keep it idempotent.
 
-## Similar-ticket retrieval (replacing `StubSimilarTicketSource`, port `ISimilarTicketSource`)
+## Similar-ticket retrieval (port `ISimilarTicketSource`)
 
-The requirements ask for **embeddings + kNN by cosine similarity** (FR-03, FR-11). Embeddings go through `IEmbeddingGenerator<string, Embedding<float>>` (M.E.AI), are cached in SQLite (e.g. `float[]` as a BLOB) and are compared in memory (20k vectors fits easily). The design is the team's call; FTS5 below is an optional keyword/hybrid add-on or fallback.
+Implemented as `DbSimilarTicketSource` in `Infrastructure/Retrieval`: **in-memory TF-IDF + cosine kNN over `Description`**, no schema change and no model call (see `docs/features/similar-ticket-retrieval/README.md`). `SimilarTicketIndexProvider` (singleton) builds the index once per process from SQLite; a cancelled or failed build is not cached. The Jira key is not stored, so keys are `DB-{Id}`.
+
+The rest of this section describes **future options** if quality is not enough: **embeddings** through `IEmbeddingGenerator<string, Embedding<float>>` (M.E.AI), cached in SQLite (e.g. `float[]` as a BLOB) and compared in memory (FR-03 asks for them), and optional FTS5 as a keyword/hybrid add-on. Both would need a schema change.
 
 Optional **SQLite FTS5** over summary + description: EF tables with a string PK still have an implicit `rowid`:
 

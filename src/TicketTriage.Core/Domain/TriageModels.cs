@@ -8,8 +8,7 @@ public sealed record TicketClassification(
     WorkType WorkType,
     IReadOnlyList<string> AffectedServices,
     Urgency Urgency,
-    Impact Impact,
-    double? Confidence = null);
+    Impact Impact);
 
 /// <summary>Routing target for a ticket.</summary>
 public sealed record RoutingDecision(IReadOnlyList<string> ServiceTeams, string? Assignee);

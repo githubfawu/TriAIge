@@ -21,11 +21,11 @@ case "$file" in
   */.env | */.env.* | *.pfx | */secrets.json | *appsettings.*.local.json)
     block "secrets file. Use Aspire parameters / 'dotnet user-secrets' instead." ;;
   *.db | *.db-shm | *.db-wal | *.sqlite)
-    block "SQLite database file. Change the schema via EF Core migrations, data via code." ;;
+    block "SQLite database file. Change the schema via the EF model (no migrations, EnsureCreated: delete the db file to recreate it), data via code." ;;
   */data/*.json)
     block "hackathon input/output data. training.json/challenge.json are provided by the organizers; result.json is written by TicketTriage.Batch." ;;
   */Migrations/*.Designer.cs | */Migrations/*ModelSnapshot.cs)
-    block "generated EF Core file. Run 'dotnet ef migrations remove' / 'add' instead of editing." ;;
+    block "generated EF Core file (this repo has no migrations; if they are reintroduced, run 'dotnet ef migrations remove' / 'add' instead of editing)." ;;
   */bin/* | */obj/*)
     block "build output. Edit the source instead." ;;
 esac

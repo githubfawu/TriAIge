@@ -1,104 +1,105 @@
 # Architektur: AI Ticket Triage (Swiss AI Weeks Hackathon)
 
-Referenz-Architektur für die Challenge "AI-Powered Ticket Triage", aufbauend auf dem im RunningBot-Capstone validierten Stack (LangGraph, Qdrant, bge-m3, Hybrid-Retrieval).
+Workflow-Sicht auf die Challenge «AI-Powered Ticket Triage» für die .NET-Anwendung TicketTriage (.NET 10, Microsoft Agent Framework, SQLite, Aspire). Diese Datei erklärt den **Ablauf pro Ticket** und die Modellwahl. Projektstruktur, Diagramme und der Umsetzungsstand je Komponente stehen in [architecture.md](architecture.md), Entscheidungen in [adr/](adr/), Anforderungen in [requirements.md](requirements.md).
 
-## 1. Ingestion & Indexing Pipeline (einmalig, auf den 20k Trainingsdaten)
+> **Umsetzungsstand:** umgesetzt sind Import, Pipeline (Retry, Timeout, Validierung, Fallback), Ähnlichkeitssuche (TF-IDF über `Description`, im Speicher), LLM-Klassifikation und LLM-Resolution-Draft sowie die Priority-Matrix. **Geplant** sind Routing-Statistik (Team/Assignee), Embeddings mit hybrider Suche (Dense + BM25), Bereinigung der Resolutions und die Persistenz der Reviews.
+
+## 1. Datenaufbereitung (einmalig, auf den 20k Trainingsdaten)
 
 ```mermaid
 flowchart TD
-    A["jira_first_20000\n_requested_fields_synthetic.json"] --> B["Parser / Loader\n(pydantic-Schema pro Ticket)"]
-    B --> C{"Pro Ticket:\nFelder normalisieren"}
-    C --> D["Ticket-Dokument bauen\n(Title + Description + Service +\nTeam + Assignee als Metadata-Header)"]
-    C --> E["Kommentar-Thread bauen\n(chronologisch verkettet,\nseparates Dokument)"]
-
-    D --> F["Embedding-Modell: bge-m3\n(1 Ticket = 1 Chunk, kein Split)"]
-    E --> G["Embedding-Modell: bge-m3\n(1 Kommentar-Thread = 1 Chunk)"]
-
-    F --> H[("Qdrant Collection\n'tickets_dense'")]
-    G --> I[("Qdrant Collection\n'resolutions_dense'")]
-
-    D --> J["BM25-Index (sparse)\nüber Title+Description"]
-    J --> K[("BM25 Store\n'tickets_sparse'")]
-
-    C --> L["Statistik-Tabellen extrahieren\n(Service→Team→Assignee Mapping,\nhäufigste Resolution-Patterns pro Service)"]
-    L --> M[("Lookup-Tabelle\nservice_team_assignee.parquet")]
-
-    N["Priority-Matrix (Urgency×Impact)\n+ Critical-Service-Liste"] --> O[("Statische Regel-KB\npriority_matrix.json")]
+    A["training.json<br/>(20k Tickets, verrauscht)"] --> B["TrainingDataImporter<br/>idempotent, löst Lookups auf"]
+    B --> C[("SQLite triage.db<br/>Ticket, Comments, Lookups")]
+    C --> D["SimilarTicketIndexProvider<br/>TF-IDF-Index über Description<br/>(lazy, einmal pro Prozess)"]
+    C -.-> E["geplant: Resolution-Bereinigung (FR-02)"]
+    C -.-> F["geplant: Routing-Statistik<br/>Service → Team, (Service, Team) → Assignee (FR-04)"]
+    C -.-> G["geplant: Embeddings + BM25 (FR-03)"]
+    H["PriorityMatrix (Core)<br/>+ Critical-Service-Liste"] --> I["deterministische Regeln im Code"]
 ```
 
 **Wichtige Design-Entscheidungen:**
 
 | Aspekt | Entscheidung | Begründung |
 |---|---|---|
-| Chunking | **Kein** klassisches Chunk-Splitting pro Ticket | Tickets sind kurz (Title+Description meist < 500 Tokens) → ein Ticket = ein Chunk vermeidet Kontextverlust an künstlichen Chunk-Grenzen |
-| Zwei Collections | `tickets_dense` (Problem) getrennt von `resolutions_dense` (Lösung) | Beim Triage brauchst du zuerst "ähnliches Problem", danach separat "wie wurde es gelöst" — unterschiedliche Query-Absicht |
-| Embedding-Modell | `bge-m3` | Im Capstone bereits gegen `nomic-embed-text` validiert, mehrsprachig (CH/FR/DE/LUX-Tickets), gute Cross-Lingual-Performance |
-| Hybrid Retrieval | Dense (bge-m3) + Sparse (BM25) via EnsembleRetriever | Tickets enthalten viele exakte Fachbegriffe (Fehlercodes, Systemnamen wie "SimCorp Dimension", "Rimes") — BM25 fängt das ab, was Dense-Embeddings "verwässern" |
-| Priority | **Kein RAG/LLM**, sondern deterministische Lookup-Tabelle | Ist laut Challenge exakt matrixbasiert — LLM-Einsatz würde nur Fehlerquelle einbauen |
-| Service→Team→Assignee | Statistik-Tabelle aus 20k Tickets (Mehrheitsentscheid) + LLM-Fallback bei Unschärfe | Deterministisch wo möglich, LLM nur wenn Mapping in Trainingsdaten uneindeutig ist |
+| Dokumenteinheit | 1 Ticket = 1 Dokument, kein Chunk-Splitting | Tickets sind kurz, Title+Description meist < 500 Tokens, ein Ticket pro Dokument vermeidet Kontextverlust |
+| Suchtext | Nur die `Description`, nie die `Summary` | Der Titel ist in den Challenge-Daten bewusst irreführend |
+| Retrieval heute | TF-IDF + Cosine-kNN im Speicher, Selbst-Ausschluss per Id | Kein Schema-Change, kein LLM-Aufruf, deterministisch und testbar. Der Port `ISimilarTicketSource` erlaubt später den Tausch |
+| Retrieval Ziel | Dense (Embeddings) + BM25 (hybrid) | Tickets enthalten viele exakte Fachbegriffe (Fehlercodes, «SimCorp Dimension», «Rimes»), die BM25 besser trifft, und mehrsprachige Texte (DE/FR/EN), die Embeddings besser verbinden. Noch nicht umgesetzt |
+| Priority | **Kein LLM**, deterministische Matrix (`PriorityMatrix.Resolve`) | Die Challenge bewertet mathematische Konsistenz mit Urgency × Impact |
+| Team / Assignee | Statistik aus den Trainingsdaten (Mehrheitsentscheid), nie vom LLM erfunden | Deterministisch, keine erfundenen Personen (ADR-0001). Heute liefert `StubRoutingResolver` noch Platzhalter |
+| Trainingsfelder Priority / Urgency / Impact | werden **nicht** verwendet | Sind im Trainingsset zufällig |
 
-## 2. Triage-Workflow pro neuem Ticket (LangGraph StateGraph)
+## 2. Triage-Workflow pro Ticket (`ITriagePipeline`)
+
+Die Pipeline ist eine feste, sequenzielle Abfolge (ADR-0001). Sie ist stream-basiert (`TriageAsync(IAsyncEnumerable<Ticket>)`, ein Vorschlag pro Ticket, in Eingabereihenfolge) und ruft nur Core-Ports auf.
 
 ```mermaid
 flowchart TD
-    Start(["Neues Challenge-Ticket\n(JSON, teils lückenhaft)"]) --> P["Node: parse_ticket\nRohfelder ins TicketState laden"]
-
-    P --> WT["Node: classify_work_type\nLLM: Incident vs. Service Request?\n(Titel bewusst irreführend → auf\nDescription/Comments fokussieren)"]
-
-    WT --> RS["Node: retrieve_similar_tickets\nHybrid-Retrieval gegen 'tickets_dense'\n+ BM25, Filter optional auf\nvermutete Service-Kategorie"]
-
-    RS --> SV["Node: verify_service\nLLM vergleicht gemeldeten Service\nmit Top-k ähnlichen historischen Tickets\n→ korrigiert 'Affected Service' falls nötig"]
-
-    SV --> TA["Node: lookup_team_assignee\nDeterministisch aus\nservice_team_assignee.parquet\n(Fallback: LLM bei Mehrdeutigkeit)"]
-
-    TA --> UI["Node: assess_urgency_impact\nLLM bewertet Urgency + Impact\nanhand Ticket-Inhalt +\nCritical-Service-Liste"]
-
-    UI --> PR["Node: compute_priority\nReiner Lookup in priority_matrix.json\n(kein LLM — deterministisch)"]
-
-    PR --> RR["Node: retrieve_resolution_pattern\nHybrid-Retrieval gegen\n'resolutions_dense', gefiltert auf\nkorrigierten Service + ähnliches Problem"]
-
-    RR --> RD["Node: decide_resolution_status\nLLM: done / cancelled /\nclarification / cannot reproduce\n(gestützt auf Retrieval-Kontext)"]
-
-    RD --> RC["Node: generate_resolution_comment\nLLM schreibt Kommentar im Ton\ndes zugewiesenen Agenten,\ngrounded auf Retrieval-Beispiele"]
-
-    RC --> VAL{"Node: validate_output\nPydantic-Schema-Check\nalle 7 Felder vollständig?"}
-
-    VAL -- "nein / Fehler" --> HITL["Node: human_review\ninterrupt() → manuelle Korrektur\n(analog HITL-Pattern Kap. 11)"]
-    HITL --> VAL
-
-    VAL -- "ok" --> Out(["Output: triaged_ticket.json\n(Work Type, Service, Team,\nAssignee, Priority, Resolution,\nResolution-Kommentar)"])
+    Start(["Ticket<br/>(Challenge-JSON oder DB, teils lückenhaft)"]) --> N["Normalisieren<br/>leere/verdächtige Felder markieren,<br/>mitgelieferte Klassifikation verwerfen"]
+    N --> RS["ISimilarTicketSource<br/>Top-k ähnliche historische Tickets<br/>(TF-IDF über Description, ohne das Ticket selbst)"]
+    RS --> CL["ITicketClassifier (LLM, ein Aufruf)<br/>Work type, Affected Services, Urgency, Impact<br/>Structured Output, Kontext: ähnliche Tickets"]
+    CL --> RT["IRoutingResolver<br/>Service Team + Assignee<br/>(Ziel: Routing-Statistik, heute Stub)"]
+    RT --> PR["PriorityMatrix.Resolve(Urgency, Impact)<br/>im Code, kein LLM"]
+    PR --> DR["IResolutionDrafter (LLM)<br/>Resolution-Kommentar in der Stimme des Assignees,<br/>Sprache des Tickets"]
+    DR --> VAL{"SuggestionValidator (FR-33)<br/>Ziel: alle 7 Felder gültig und vollständig.<br/>Heute: Enums, Service, Kommentar"}
+    VAL -- "ok" --> Out(["TriageSuggestion"])
+    VAL -- "Fehler / Timeout / Exception" --> RETRY{"Retries < RetryCount?"}
+    RETRY -- "ja" --> RS
+    RETRY -- "nein" --> FB["deterministischer Fallback<br/>(Work type + Service aus ähnlichen Tickets,<br/>Urgency Medium, Impact Moderate, kein Kommentar)"]
+    FB --> Out
 ```
 
-## 3. State-Objekt (Vorschlag)
+- **Antwortformat des Classifiers:** ein Structured-Output-Aufruf (`RunAsync<T>`) liefert Work type, Services, Urgency und Impact. Ungültige Enum-Werte oder unbekannte Services führen zu einer Exception, die Pipeline zählt das als fehlgeschlagenen Versuch (kein stilles Korrigieren im Agent).
+- **Resolution-Status** (`done`, `cancelled`, `clarification`, `cannot reproduce`): **nicht umgesetzt**, folgt in einem späteren Umsetzungszyklus. Der Drafter kann ihn Agents-seitig erzeugen (`IResolutionDraftAgent`), `TriageSuggestion.ResolutionStatus` existiert, bleibt aber immer `null`; `TriageResult` und die Validierung kennen ihn nicht.
+- **Keine Confidence, keine Begründung** pro Entscheidung (bewusst nicht benötigt). Der Vorschlag führt nur die Keys der Referenz-Tickets mit.
+- Das Review durch den Analysten passiert nachgelagert im Web-UI, nicht als Schleife im Ablauf (siehe [architecture.md §5](architecture.md)).
 
-```python
-class TicketState(TypedDict):
-    raw_ticket: dict
-    work_type: str | None
-    reported_service: str
-    verified_service: str | None
-    service_team: str | None
-    assignee: str | None
-    urgency: str | None
-    impact: str | None
-    priority: str | None          # via Matrix-Lookup, nicht LLM
-    retrieved_similar_tickets: list[dict]
-    retrieved_resolutions: list[dict]
-    resolution_status: str | None  # done | cancelled | clarification | cannot reproduce
-    resolution_comment: str | None
-    validation_errors: list[str]
-```
+### Die 7 bewerteten Felder
 
-## 4. Modell-Einsatz (Hackathon-pragmatisch)
+Das Ergebnis pro Ticket besteht aus genau diesen Feldern (requirements §2). Urgency und Impact sind Zwischenwerte für die Priority und dürfen korrigiert werden (Teilpunkte).
 
-| Node | Modell-Empfehlung | Grund |
+| # | Feld | Bestimmt durch | Stand |
+|---|---|---|---|
+| 1 | Work type | LLM (`ITicketClassifier`) | umgesetzt |
+| 2 | Affected Service | LLM, gegen Service-Katalog geprüft | umgesetzt (Katalog in Core noch mit Platzhaltern) |
+| 3 | Service Team(s) | Routing-Statistik (`IRoutingResolver`) | Stub |
+| 4 | Assignee | Routing-Statistik (`IRoutingResolver`) | Stub |
+| 5 | Priority | Code (`PriorityMatrix`) | umgesetzt |
+| 6 | Resolution-Status | LLM-Draft, Code validiert | **nicht umgesetzt** (späterer Zyklus) |
+| 7 | Resolution-Kommentar | LLM (`IResolutionDrafter`) | umgesetzt |
+
+Die Validierung (FR-33) muss **alle sieben** Felder prüfen. Der `SuggestionValidator` prüft heute erst Work type, Urgency, Impact, mindestens einen Service und den Kommentar; Team, Assignee, Priority-Konsistenz und Resolution-Status fehlen noch.
+- Ticket-Text ist untrusted Input: er steht nur in der User-Nachricht, nie in den Instruktionen.
+
+## 3. Datenmodell (Core-Typen)
+
+Statt eines generischen State-Objekts tragen typisierte Records den Zustand:
+
+| Typ | Inhalt |
+|---|---|
+| `Ticket` | Rohfelder inkl. optionaler DB-`Id` (nicht im JSON) |
+| `SimilarTicket` | ähnliches Ticket + Score, `Key = DB-{Id}`; Urgency, Impact und Priority immer `null` |
+| `TicketClassification` | Work type, Affected Services, Urgency, Impact (ohne Priority) |
+| `RoutingDecision` | Service Teams, Assignee |
+| `TriageSuggestion` | Ergebnis der Pipeline (Work type, Services, Urgency, Impact, Team, Assignee, Kommentar, Referenz-Keys, `ResolutionStatus` immer `null`), `Priority` wird aus Urgency × Impact berechnet. Keine Confidence, keine Begründung |
+| `TriageFailure` | ein fehlgeschlagener Versuch (Grund als Code, Exception-Typ, Stack-Frames, kein Ticket-Text) |
+
+Der Ticket-Status ist der DB-Status (`New`, `Reviewing`, `Reviewed`, `HumanRejected`, `HumanApproved`), siehe [architecture.md §5.1](architecture.md).
+
+## 4. Modell-Einsatz
+
+Der Provider ist per Konfiguration umschaltbar (`Llm:Provider`: Azure OpenAI, OpenAI, Apertus oder Ollama, siehe README).
+
+| Schritt | Modell | Grund |
 |---|---|---|
-| `classify_work_type`, `verify_service`, `assess_urgency_impact` | lokal via Ollama, z. B. `qwen2.5:7b` | schnell, kostenlos, ausreichend für Klassifikation |
-| `generate_resolution_comment` | grösseres Modell (z. B. `gpt-4o-mini` via API) | Textqualität zählt direkt ins Scoring ("spezifisch statt generisch") |
-| `compute_priority`, `lookup_team_assignee` | **kein LLM** | deterministische Funktionen |
+| Klassifikation inkl. Urgency/Impact (`LlmTicketClassifier`) | Chat-Modell des konfigurierten Providers, Temperature 0 | Strukturierte Klassifikation, ein Aufruf hält die Latenz unter 15 s (NFR-06) |
+| Resolution-Draft (`LlmResolutionDrafter`) | dasselbe Modell | Textqualität zählt direkt ins Scoring («spezifisch statt generisch») |
+| Priority, Routing, Retrieval, Validierung | **kein LLM** | deterministische Funktionen |
+
+Kleine lokale Ollama-Modelle (Standard `qwen2.5:1.5b`) sind bei striktem JSON schwach und eignen sich für Entwicklung. Für den bewerteten Lauf empfiehlt sich ein grösseres Modell (Azure OpenAI, OpenAI oder Apertus). Unit-Tests verwenden immer einen Fake-`IChatClient`.
 
 ## 5. Kritischer Punkt für die Bewertung
 
-> "Resolution comments that are specific and plausible, not generic filler."
+> «Resolution comments that are specific and plausible, not generic filler.»
 
-→ Der `retrieve_resolution_pattern`-Node ist der Hebel: ohne konkret abgerufenes, ähnliches historisches Ticket generiert das LLM zwangsläufig generische Floskeln ("issue fixed"). Retrieval-Qualität hier ist wichtiger als Prompt-Tuning.
+Der Hebel ist die Qualität der abgerufenen ähnlichen Tickets und ihrer Resolutions: ohne konkretes, ähnliches historisches Ticket erzeugt das LLM zwangsläufig Floskeln («issue fixed»). Deshalb sind die geplanten Ausbaustufen die Bereinigung der Resolutions (FR-02, FR-05) und das hybride Retrieval (FR-03), nicht weiteres Prompt-Tuning.

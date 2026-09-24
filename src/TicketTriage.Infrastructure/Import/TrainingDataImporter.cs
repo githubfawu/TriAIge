@@ -62,7 +62,7 @@ public sealed class TrainingDataImporter(
         var serviceTeamIds = await LoadLookupAsync(db.ServiceTeams, cancellationToken);
         var affectedServiceIds = await LoadLookupAsync(db.AffectedBusinessOrITServices, cancellationToken);
         var newStatusId = await db.Statuses.Where(s => s.Name == "New").Select(s => s.Id).SingleAsync(cancellationToken);
-        var finishedStatusId = await db.Statuses.Where(s => s.Name == "Finished").Select(s => s.Id).SingleAsync(cancellationToken);
+        var approvedStatusId = await db.Statuses.Where(s => s.Name == "HumanApproved").Select(s => s.Id).SingleAsync(cancellationToken);
 
         var entities = tickets.Select(ticket => new TicketEntity
         {
@@ -76,7 +76,7 @@ public sealed class TrainingDataImporter(
             ImpactId = Resolve(impactIds, TranslateImpactName(ticket.Impact)),
             PriorityId = Resolve(priorityIds, ticket.Priority),
             CreatedDate = ticket.Created?.UtcDateTime ?? timeProvider.GetUtcNow().UtcDateTime,
-            StatusId = ticket.Resolution is null ? newStatusId : finishedStatusId,
+            StatusId = ticket.Resolution is null ? newStatusId : approvedStatusId,
             Resolution = Truncate(ticket.Resolution, 500),
             Comments = [.. ticket.Comments.Select(text => new CommentEntity { CommentText = Truncate(text, 500)! })],
         });

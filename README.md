@@ -6,8 +6,11 @@ It classifies each ticket (work type, affected service, service team, assignee),
 ~20k training set, drafts a resolution comment, and lets a human analyst approve / edit / reject
 the suggestion. Final scoring runs in batch mode over 20 challenge tickets (JSON in → JSON out).
 
-> **Status: scaffold.** Only the priority matrix is implemented. Classification, embeddings / kNN retrieval,
-> routing statistics, draft generation, HITL persistence and the batch output format are stubs marked `TODO: implement`.
+> **Status: work in progress.** Implemented: priority matrix, training import, the triage pipeline (retry, timeout, validation,
+> fallback, failure log), similar-ticket retrieval (in-memory TF-IDF), LLM classifier and resolution drafter, LLM provider switch.
+> Still stubs / planned: routing statistics (team + assignee), embeddings and hybrid retrieval, real `ServiceCatalog` names,
+> ticket ingest, analysis worker, review persistence (HITL) and the batch output (`BatchRunner` is a TODO).
+> Per-component status: [docs/architecture.md](docs/architecture.md).
 
 ## Prerequisites
 
@@ -92,7 +95,7 @@ dotnet run --project src/TicketTriage.AppHost  # Aspire dashboard: https://local
   - `/health` returns every check as detailed JSON
   - `/alive` runs liveness checks only
 - **batch**: has an explicit start, so launch it from the dashboard (▶). It reads `data/challenge.json` and writes `data/result.json`.
-- **triage-db**: the SQLite file `data/triage.db`. In Development, migrations and the training import run on startup.
+- **triage-db**: the SQLite file `data/triage.db`. In Development, the schema is created (`EnsureCreatedAsync`, no migrations) and the training import runs on startup.
 
 Batch without Aspire:
 
@@ -123,12 +126,15 @@ src/
   TicketTriage.ServiceDefaults/ OpenTelemetry (incl. Microsoft.Extensions.AI / Agent Framework sources),
                                 health endpoints + JSON writer, resilience, service discovery
   TicketTriage.Core/            Domain: records, enums, PriorityMatrix, ServiceCatalog, interfaces (no dependencies)
-  TicketTriage.Infrastructure/  EF Core SQLite (TriageDbContext + migrations), TrainingDataImporter, stub services
-  TicketTriage.Agents/          IChatClient per provider, TriageAgent (Agent Framework), AgentFrameworkHealthCheck
+  TicketTriage.Infrastructure/  EF Core SQLite (TriageDbContext, EnsureCreated), TrainingDataImporter, TriagePipeline,
+                                similar-ticket retrieval (TF-IDF), DbTicketSource, routing stub
+  TicketTriage.Agents/          IChatClient per provider, TriageAgent (Agent Framework), LLM classifier + drafter, AgentFrameworkHealthCheck
   TicketTriage.Web/             Blazor Web App (Interactive Server) + MudBlazor, HITL pages
   TicketTriage.Batch/           Console app (Generic Host): --input challenge.json --output result.json
 tests/
   TicketTriage.Core.Tests/      xUnit v3 + FluentAssertions: all 25 priority combinations, service catalog
+  TicketTriage.Infrastructure.Tests/  pipeline, retry / failure store, retrieval, sources, importer (SQLite in-memory)
+  TicketTriage.Agents.Tests/    classifier + drafter with a fake IChatClient; live smoke tests are opt-in (`Category=Integration`)
 data/                           gitignored: training.json, challenge.json, result.json, triage.db
 ```
 
@@ -147,7 +153,8 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
 ### Database
 
 - Normalized schema: `Ticket` (each classification field has an original value and a `*Changed` column holding the AI's pending re-classification) with FK lookup tables `WorkType`, `Priority`, `Urgency`, `Impact`, `ServiceTeams`, `AffectedBusinessOrITServices`, `BusinessEntity`, `Status`; `Comments` (one-to-many on `Ticket`); `PriorityMapping` (plain Urgency x Impact -> Priority lookup, mirrors the matrix above).
-- The schema is created from the current EF model on startup (`Database.EnsureCreatedAsync`, not migrations); lookup tables are seeded via `HasData`. It never alters an existing file: after schema changes (e.g. `Ticket.Retries` and table `TriageFailure` from the triage pipeline) delete `data/triage.db*` once.
+- The schema is created from the current EF model on startup (`Database.EnsureCreatedAsync`, **no migrations**); lookup tables are seeded via `HasData`. It never alters an existing file: after schema or seed changes (e.g. `Ticket.Retries` and table `TriageFailure` from the triage pipeline, the status seed) delete `data/triage.db*` once.
+- Ticket statuses (`Status` lookup): `New`, `Reviewing`, `Reviewed`, `HumanRejected`, `HumanApproved`. Imported training tickets with a resolution are `HumanApproved`, those without stay `New`.
 - Pipeline behaviour (retries, timeout, stop switch) is the `Triage` section in the Web/Batch `appsettings.json`, see [docs/features/triage-pipeline](docs/features/triage-pipeline/README.md).
 - `CreatedDate` / `ResolutionDate` are plain `DateTime` (no SQLite ordering issue, unlike `DateTimeOffset`).
 
@@ -177,17 +184,18 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
   `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are not referenced.
 - **FluentAssertions licensing:** v8 is under the Xceed license, which requires a paid license for commercial use.
   If that's a concern, [AwesomeAssertions](https://www.nuget.org/packages/AwesomeAssertions) is a drop-in, Apache-2.0 fork.
-- **ServiceCatalog:** the 20 service names are placeholders (`TODO Critical Service 01` …); the 14/6 split is correct.
-  Replace them with the real catalog. Likewise, check the `Ticket` JSON property names against the real data files.
+- **ServiceCatalog:** the 20 service names in Core are placeholders (`TODO Critical Service 01` …); the 14/6 split is correct.
+  The real names are in [docs/requirements.md](docs/requirements.md) §6 and in the DB `AffectedBusinessOrITServices` seed. Likewise, check the `Ticket` JSON property names against the real data files.
 
 ## Documentation
 
 | Document | Content |
 |---|---|
 | [docs/requirements.md](docs/requirements.md) | Challenge requirements (FR/NFR IDs, scoring, priority matrix, open questions) |
-| [docs/architecture.md](docs/architecture.md) | Architecture diagrams (Mermaid): context, projects, data preparation, triage pipeline, ticket lifecycle, analysis worker, human-in-the-loop |
+| [docs/architecture.md](docs/architecture.md) | Architecture diagrams (Mermaid) and component status (implemented / planned): context, projects, data preparation, triage pipeline, ticket lifecycle, analysis worker, human-in-the-loop |
 | [docs/adr/](docs/adr/) | Architecture Decision Records: [ADR-0001 five-step hybrid pipeline](docs/adr/0001-hybrid-triage-pipeline.md), [ADR-0002 background analysis worker](docs/adr/0002-background-analysis-worker.md) |
-| `docs/features/<feature>/` | Per-feature requirements, plan and docs (created by the Claude Code workflow) |
+| `docs/features/<feature>/` | Per-feature requirements, plan and docs (created by the Claude Code workflow): [triage-pipeline](docs/features/triage-pipeline/README.md), [similar-ticket-retrieval](docs/features/similar-ticket-retrieval/README.md), [triage-agent](docs/features/triage-agent/README.md) |
+| [docs/ticket_triage_architektur.md](docs/ticket_triage_architektur.md) | Workflow-Sicht auf die Triage (Deutsch): Datenaufbereitung, Ablauf pro Ticket, Modell-Einsatz |
 | [CLAUDE.md](CLAUDE.md) | Conventions and pitfalls. Also the entry point for the shared Claude Code setup in `.claude/` |
 
 ## License

@@ -6,6 +6,8 @@ using TicketTriage.Core.Abstractions;
 using TicketTriage.Infrastructure.Import;
 using TicketTriage.Infrastructure.Persistence;
 using TicketTriage.Infrastructure.Pipeline;
+using TicketTriage.Infrastructure.Retrieval;
+using TicketTriage.Infrastructure.Sources;
 using TicketTriage.Infrastructure.Stubs;
 
 namespace TicketTriage.Infrastructure;
@@ -28,8 +30,12 @@ public static class InfrastructureServiceCollectionExtensions
         services.Configure<TrainingDataOptions>(configuration.GetSection(TrainingDataOptions.SectionName));
         services.AddScoped<TrainingDataImporter>();
 
-        // TODO: implement - replace the stubs with real implementations (Agents project for LLM-backed ones).
-        services.TryAddScoped<ISimilarTicketSource, StubSimilarTicketSource>();
+        services.TryAddSingleton<LookupNamesProvider>();
+        services.TryAddSingleton<SimilarTicketIndexProvider>();
+        services.TryAddSingleton<ISimilarTicketSource, DbSimilarTicketSource>();
+        services.TryAddSingleton<ITicketSource, DbTicketSource>();
+
+        // TODO: implement - replace the remaining stubs with real implementations (Agents project for LLM-backed ones).
         services.TryAddScoped<ITicketClassifier, StubTicketClassifier>();
         services.TryAddScoped<IRoutingResolver, StubRoutingResolver>();
         services.TryAddScoped<IResolutionDrafter, StubResolutionDrafter>();

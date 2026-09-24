@@ -24,7 +24,7 @@ You write tests for **TicketTriage**. Read the code under test, `CLAUDE.md`, and
 
 | Dependency | In tests |
 |---|---|
-| LLM (`IChatClient`, `AIAgent`) | **Always fake.** A small `FakeChatClient : IChatClient` returning canned `ChatResponse`s (incl. JSON for structured output), or NSubstitute on the project's agent interface. Never hit Azure OpenAI/Ollama in unit tests. |
+| LLM (`IChatClient`, `AIAgent`) | **Always fake.** A small `FakeChatClient : IChatClient` returning canned `ChatResponse`s (incl. JSON for structured output), or NSubstitute on the project's agent interface. Never hit a real provider (Azure OpenAI, OpenAI, Apertus, Ollama) in unit tests; live smoke tests are `Category=Integration` and opt-in. |
 | EF Core / SQLite | Real SQLite in-memory: open `SqliteConnection("DataSource=:memory:")`, `UseSqlite(connection)`, `EnsureCreated()`. Not the EF InMemory provider (different semantics). |
 | Core entities / value objects | Real — no mocks. |
 | Time | `FakeTimeProvider` (`Microsoft.Extensions.TimeProvider.Testing`) if the code uses `TimeProvider`. |

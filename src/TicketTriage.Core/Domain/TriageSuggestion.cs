@@ -39,7 +39,4 @@ public sealed record TriageSuggestion
     /// <summary>Keys of the historical tickets that informed this suggestion (explainability).</summary>
     [JsonPropertyName("Similar Tickets")]
     public IReadOnlyList<string> SimilarTicketKeys { get; init; } = [];
-
-    [JsonPropertyName("Confidence")]
-    public double? Confidence { get; init; }
 }

@@ -5,7 +5,7 @@ Swiss {ai} Weeks hackathon (Swiss Life challenge): triage IT service-desk ticket
 > Keep this file under ~200 lines. Deep technology knowledge lives in `.claude/skills/*`, not here.
 > When you learn something non-obvious (gotcha, convention, changed command), update this file or the matching skill in the same PR.
 
-**Read first:** [docs/requirements.md](docs/requirements.md) (FR/NFR IDs, scoring, priority matrix, open questions) · [docs/architecture.md](docs/architecture.md) (diagrams, stub status) · [docs/adr/](docs/adr/) (decisions). Feature work goes to `docs/features/<feature>/`.
+**Read first:** [docs/requirements.md](docs/requirements.md) (FR/NFR IDs, scoring, priority matrix, open questions) · [docs/architecture.md](docs/architecture.md) (diagrams, **component status: implemented vs planned**) · [docs/adr/](docs/adr/) (decisions). Feature work goes to `docs/features/<feature>/`.
 
 ## Stack
 
@@ -15,7 +15,7 @@ Swiss {ai} Weeks hackathon (Swiss Life challenge): triage IT service-desk ticket
 | UI | Blazor Web App, **global Interactive Server** render mode, MudBlazor |
 | Orchestration | Aspire 13 (`Aspire.AppHost.Sdk`), ServiceDefaults for OpenTelemetry / health / resilience |
 | Persistence | SQLite + EF Core 10 (`CommunityToolkit.Aspire.Hosting.Sqlite` in the AppHost), `dotnet-ef` as local tool |
-| AI | Microsoft Agent Framework 1.x on `Microsoft.Extensions.AI` `IChatClient`; provider **Azure OpenAI** or local **Ollama** |
+| AI | Microsoft Agent Framework 1.x on `Microsoft.Extensions.AI` `IChatClient`; provider **Azure OpenAI**, **OpenAI**, **Apertus** (Swisscom, Swiss AI Weeks) or local **Ollama** |
 | Tests | xUnit v3 on **Microsoft.Testing.Platform**, FluentAssertions (add bUnit / NSubstitute / `Aspire.Hosting.Testing` when needed) |
 | Packages | Central Package Management — versions only in `Directory.Packages.props` |
 
@@ -27,25 +27,28 @@ data/                         local-only inputs/outputs (gitignored, see data/RE
 src/
   TicketTriage.Core/            Domain — NO references. Domain/ (Ticket, enums, PriorityMatrix, ServiceCatalog,
                                 TriageSuggestion, …), Abstractions/ (pipeline ports)
-  TicketTriage.Infrastructure/  → Core. Persistence/ (TriageDbContext, entities, Migrations/), Import/ (training.json),
-                                Stubs/ (placeholder pipeline implementations), DatabaseInitializer
-  TicketTriage.Agents/          → Infrastructure. Llm/ (LlmOptions, ChatClientFactory), TriageAgent, Health/
+  TicketTriage.Infrastructure/  → Core. Persistence/ (TriageDbContext, entities; no Migrations/), Import/ (training.json),
+                                Pipeline/ (TriagePipeline), Retrieval/ (TF-IDF), Sources/ (DbTicketSource, mapper),
+                                Stubs/ (remaining placeholders: routing), DatabaseInitializer
+  TicketTriage.Agents/          → Infrastructure. Llm/ (LlmOptions, ChatClientFactory), Classification/, Drafting/, Prompting/,
+                                Services/ (service catalog abstraction), TriageAgent, Health/
   TicketTriage.Web/             → Agents, ServiceDefaults. Components/Pages: Home, Tickets, Review
   TicketTriage.Batch/           → Agents, Infrastructure. challenge.json → pipeline → result.json
   TicketTriage.ServiceDefaults/ OTel (incl. M.E.AI + Agent Framework sources), health checks (ReadyTag), resilience
   TicketTriage.AppHost/         wires triage-db, web, batch, LLM parameters
 tests/
   TicketTriage.Core.Tests/      xUnit v3 + FluentAssertions
-  TicketTriage.Infrastructure.Tests/  pipeline, failure store (SQLite in-memory)
+  TicketTriage.Infrastructure.Tests/  pipeline, failure store, retrieval, sources, importer (SQLite in-memory)
+  TicketTriage.Agents.Tests/    classifier / drafter with a fake IChatClient; live smoke tests are `Category=Integration`
 ```
 
 Dependency direction: `Core ← Infrastructure ← Agents ← {Web, Batch}`. Never reference outward.
 
 ## Triage pipeline (Core ports → implementations)
 
-`ITriagePipeline` is stream-based (`TriageAsync(IAsyncEnumerable<Ticket>)` → one suggestion per ticket, sequential, in order; input from `ITicketSource`, no implementation yet) and implemented in `Infrastructure/Pipeline` (normalize, timeout, retry, validation, fallback, failure log via `ITriageFailureStore`; details in `docs/features/triage-pipeline/README.md`). Per ticket: **retrieve similar** (`ISimilarTicketSource`) → **classify** (`ITicketClassifier`: work type, affected services, urgency, impact) → **route** (`IRoutingResolver`: service teams, assignee) → **prioritize** (`PriorityMatrix`, deterministic) → **draft** (`IResolutionDrafter`). Result: `TriageSuggestion`, reviewed by a human (`ReviewDecision`). The pipeline only **analyses**: tickets come in via `ITicketIngestor` (status `New`), a `BackgroundService` worker in Web pre-computes suggestions, and `IReviewService` persists decisions (ADR-0002). Opening a ticket never calls the LLM. Batch calls the pipeline directly.
+`ITriagePipeline` is stream-based (`TriageAsync(IAsyncEnumerable<Ticket>)` → one suggestion per ticket, sequential, in order; input from `ITicketSource` = `DbTicketSource`, streams `New` tickets, registered but no caller yet) and implemented in `Infrastructure/Pipeline` (normalize, timeout, retry, validation, fallback, failure log via `ITriageFailureStore`; details in `docs/features/triage-pipeline/README.md`). Per ticket: **retrieve similar** (`ISimilarTicketSource`) → **classify** (`ITicketClassifier`: work type, affected services, urgency, impact) → **route** (`IRoutingResolver`: service teams, assignee) → **prioritize** (`PriorityMatrix`, deterministic) → **draft** (`IResolutionDrafter`). Result: `TriageSuggestion`, reviewed by a human (`ReviewDecision`). The pipeline only **analyses**. **Planned, not implemented yet** (ADR-0002): `ITicketIngestor` (saves tickets as `New`), a `BackgroundService` worker in Web that pre-computes suggestions, and `IReviewService` (persists decisions). Opening a ticket never calls the LLM. Batch calls the pipeline directly (`BatchRunner` is still a TODO and writes the input back).
 
-Currently the step ports (`ISimilarTicketSource`, classifier, router, drafter) are served by `Infrastructure/Stubs/*` (registered with `TryAdd*`); the pipeline itself is real. Replacing a stub = implement the port (LLM-backed ones in `Agents`), register it explicitly, keep a deterministic fallback.
+Implemented ports: `ISimilarTicketSource` = `DbSimilarTicketSource` (in-memory TF-IDF + cosine over `Description` only, index built once per process, self-exclusion by `Id`, keys `DB-{Id}`; [similar-ticket-retrieval](docs/features/similar-ticket-retrieval/README.md)); `ITicketClassifier` = `LlmTicketClassifier` and `IResolutionDrafter` = `LlmResolutionDrafter` in Agents ([triage-agent](docs/features/triage-agent/README.md)). Still a stub: `IRoutingResolver` (`Infrastructure/Stubs/StubRoutingResolver`, registered with `TryAdd*`; Agents registers with `Add*` after Infrastructure and overrides). Replacing a stub = implement the port, register it explicitly, keep a deterministic fallback. Status per component: [architecture.md](docs/architecture.md).
 
 ## Commands
 
@@ -56,16 +59,13 @@ dotnet build TicketTriage.slnx
 dotnet test --solution TicketTriage.slnx              # MTP runner: --solution/--project, not a positional path
 dotnet test --solution TicketTriage.slnx --filter "Category!=Integration"
 dotnet format TicketTriage.slnx --verify-no-changes
-
-dotnet ef migrations add <Name> --project src/TicketTriage.Infrastructure --startup-project src/TicketTriage.Web --output-dir Persistence/Migrations
-dotnet ef migrations list        --project src/TicketTriage.Infrastructure --startup-project src/TicketTriage.Web
 ```
 
-In Development, Web applies migrations and imports `training.json` on startup (`InitializeTriageDatabaseAsync`, idempotent).
+There are **no EF migrations** (see Gotchas and the `sqlite-efcore` skill). In Development, Web creates the schema (`EnsureCreatedAsync`) and imports `training.json` on startup (`InitializeTriageDatabaseAsync`, idempotent).
 
 ## Configuration & secrets
 
-LLM config is the `Llm` section (`LlmOptions`): `Provider` = `AzureOpenAI` | `Ollama`, `AzureOpenAI:{Endpoint,Deployment,ApiKey}`, `Ollama:{Endpoint,Model}`. Missing config does **not** crash the app — `UnconfiguredChatClient` + the `ready` health check report it.
+LLM config is the `Llm` section (`LlmOptions`): `Provider` = `AzureOpenAI` (default) | `OpenAI` | `Apertus` | `Ollama`, with per-provider sub-sections (`AzureOpenAI:{Endpoint,Deployment,ApiKey}`, `OpenAI:{ApiKey,Model}`, `Apertus:{Endpoint,ApiKey,Model}`, `Ollama:{Endpoint,Model}`; full table in `README.md`). Missing config does **not** crash the app — `UnconfiguredChatClient` + the `ready` health check report it.
 
 Keys never go into `appsettings*.json` or code. They are AppHost parameters in the AppHost's user secrets, mapped to `Llm__*` env vars by `WithLlmConfiguration` in `AppHost.cs` (full table in `README.md`):
 
@@ -94,8 +94,9 @@ Pipeline behaviour is the `Triage` section (`TriageOptions`, in Web/Batch `appse
 - `TreatWarningsAsErrors` — a new analyzer warning breaks the build. Fix the cause; don't blanket-suppress.
 - Blazor prerender runs `OnInitializedAsync` **twice** — use `[PersistentState]` or `OnAfterRenderAsync(firstRender)` for expensive/LLM work.
 - SQLite can't `ORDER BY` `DateTimeOffset`/`decimal` natively — existing `DateTimeOffset` columns are stored as sortable 64-bit integers via a converter; new ones need the same. Single writer — keep transactions short.
-- `**/Migrations/*.cs` is generated — never hand-edit; the `protect-files` hook blocks Designer/Snapshot edits.
-- The schema is created by `EnsureCreatedAsync` (no migrations in the repo): it never alters an existing DB, so **delete `data/triage.db*` after any schema change** (e.g. `Ticket.Retries`, table `TriageFailure`), else "no such column/table".
+- The schema is created by `EnsureCreatedAsync` — **there are no migrations** (by decision; `sqlite-efcore` skill explains how to reintroduce them; then `**/Migrations/*.cs` is generated and must not be hand-edited, the `protect-files` hook blocks it). It never alters an existing DB, so **delete `data/triage.db*` after any schema change or seed change** (e.g. `Ticket.Retries`, table `TriageFailure`, status seed `New/Reviewing/Reviewed/HumanRejected/HumanApproved`), else "no such column/table" or an importer failure on the old `Finished` status.
+- Imported training tickets **without a `Resolution` get status `New`**, the same status as future intake. A worker on `DbTicketSource` would re-triage history — add a filter before wiring it.
+- `ServiceCatalog` still holds `TODO …` placeholder names. The real 20 names are in `docs/requirements.md` §6 and the DB `AffectedBusinessOrITServices` seed.
 - `Triage:StopSystemOnFailure` stops the host on a ticket's first failure and the pipeline throws `OperationCanceledException`. Dev/Batch only; never in production Web.
 - `PriorityMatrix` depends on the **declaration order** of `Urgency` and `Impact` — never reorder those enums.
 - Agent Framework 1.x renamed preview APIs (`AgentThread` → `AgentSession`, `CreateAIAgent` → `AsAIAgent`) — old samples won't compile.
