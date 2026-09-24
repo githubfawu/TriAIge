@@ -19,7 +19,7 @@ Components/
 
 - Pages stay thin: inject Core ports (`ITriagePipeline`, …) or small query services, render state. No EF queries, prompts or business rules in `.razor`.
 - Code-behind (`Page.razor.cs`, `partial class`) once `@code` exceeds ~30 lines.
-- Human-in-the-loop review (`Review.razor`) persists `ReviewDecision` (Approved/Edited/Rejected) — the analyst's decision is the source of truth, not the suggestion.
+- Human-in-the-loop review (`Review.razor`) persists `ReviewDecision` (Approved/Rejected, edits stored per field) — the analyst's decision is the source of truth, not the suggestion.
 
 ## MudBlazor setup (once)
 

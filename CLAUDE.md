@@ -42,7 +42,7 @@ Dependency direction: `Core ← Infrastructure ← Agents ← {Web, Batch}`. Nev
 
 ## Triage pipeline (Core ports → implementations)
 
-`ITriagePipeline`: **retrieve similar** (`ISimilarTicketRetriever`) → **classify** (`ITicketClassifier`: work type, affected services, urgency, impact) → **route** (`IRoutingResolver`: service teams, assignee) → **prioritize** (`PriorityMatrix`, deterministic) → **draft** (`IResolutionDrafter`). Result: `TriageSuggestion`, reviewed by a human (`ReviewDecision`).
+`ITriagePipeline`: **retrieve similar** (`ISimilarTicketRetriever`) → **classify** (`ITicketClassifier`: work type, affected services, urgency, impact) → **route** (`IRoutingResolver`: service teams, assignee) → **prioritize** (`PriorityMatrix`, deterministic) → **draft** (`IResolutionDrafter`). Result: `TriageSuggestion`, reviewed by a human (`ReviewDecision`). The pipeline only **analyses**: tickets come in via `ITicketIngestor` (status `New`), a `BackgroundService` worker in Web pre-computes suggestions, and `IReviewService` persists decisions (ADR-0002). Opening a ticket never calls the LLM. Batch calls the pipeline directly.
 
 Currently the ports are served by `Infrastructure/Stubs/*` (registered with `TryAdd*`). Replacing a stub = implement the port (LLM-backed ones in `Agents`), register it explicitly, keep a deterministic fallback.
 

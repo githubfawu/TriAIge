@@ -184,8 +184,8 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
 | Document | Content |
 |---|---|
 | [docs/requirements.md](docs/requirements.md) | Challenge requirements (FR/NFR IDs, scoring, priority matrix, open questions) |
-| [docs/architecture.md](docs/architecture.md) | Architecture diagrams (Mermaid): context, projects, data preparation, triage pipeline, human-in-the-loop |
-| [docs/adr/](docs/adr/) | Architecture Decision Records, starting with [ADR-0001: five-step hybrid pipeline](docs/adr/0001-hybrid-triage-pipeline.md) |
+| [docs/architecture.md](docs/architecture.md) | Architecture diagrams (Mermaid): context, projects, data preparation, triage pipeline, ticket lifecycle, analysis worker, human-in-the-loop |
+| [docs/adr/](docs/adr/) | Architecture Decision Records: [ADR-0001 five-step hybrid pipeline](docs/adr/0001-hybrid-triage-pipeline.md), [ADR-0002 background analysis worker](docs/adr/0002-background-analysis-worker.md) |
 | `docs/features/<feature>/` | Per-feature requirements, plan and docs (created by the Claude Code workflow) |
 | [CLAUDE.md](CLAUDE.md) | Conventions and pitfalls. Also the entry point for the shared Claude Code setup in `.claude/` |
 

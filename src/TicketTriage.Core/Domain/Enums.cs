@@ -64,7 +64,6 @@ public enum ReviewDecision
 {
     Pending,
     Approved,
-    Edited,
     Rejected,
 }
 

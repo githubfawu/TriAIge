@@ -5,6 +5,7 @@ Short records of decisions that are hard to reverse or that a new teammate would
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-hybrid-triage-pipeline.md) | Five-step hybrid triage pipeline (LLM suggests, code decides) | Proposed |
+| [0002](0002-background-analysis-worker.md) | Pre-computed suggestions from a background analysis worker | Proposed |
 
 ## Template
 

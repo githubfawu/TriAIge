@@ -79,22 +79,26 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 
 | ID | Anforderung | Prio |
 |---|---|---|
-| FR-20 | Liste aller Tickets mit Status (Pending, Approved, Edited, Rejected). | M |
+| FR-20 | Liste aller Tickets mit Status (New, Analysing, Suggested, Approved, Rejected, Failed). | M |
 | FR-21 | Review-Ansicht: Originalticket neben dem Vorschlag, alle Felder editierbar. | M |
-| FR-22 | Der Analyst kann Approve, Edit oder Reject wählen. Der Entscheid wird inkl. Änderungen persistiert. | M |
+| FR-22 | Der Analyst kann Approve, Edit oder Reject wählen. Der Entscheid wird über `IReviewService` (nicht über die Pipeline) persistiert, inkl. Änderungen pro Feld, Reject-Begründung und Zeitstempeln (Ingest, erstes Öffnen, Entscheid). Parallele Änderungen werden per Row-Version erkannt. | M |
 | FR-23 | Bei Änderung von Urgency oder Impact wird die Priority automatisch neu berechnet. | M |
 | FR-24 | Die Referenz-Tickets und die Begründung sind in der Review-Ansicht sichtbar. | S |
-| FR-25 | Dashboard mit Metriken: Acceptance-Rate, Anzahl Edits pro Feld, Durchlaufzeit. | S |
-| FR-26 | Neues Ticket manuell erfassen oder als E-Mail-Text einfügen und triagieren lassen. | C |
+| FR-25 | Dashboard mit Metriken: Acceptance-Rate, Anzahl Edits pro Feld, Durchlaufzeit (Ingest → erstes Öffnen → Entscheid, aus den Zeitstempeln von FR-22). | S |
+| FR-26 | Neues Ticket manuell erfassen oder als E-Mail-Text einfügen und triagieren lassen. Es wird wie jedes andere Ticket über FR-27 aufgenommen. | C |
+| FR-27 | Neue Tickets werden über `ITicketIngestor` gespeichert und erhalten den Status `New`. Die Pipeline nimmt keine Tickets auf. | M |
+| FR-28 | Ein Analyse-Worker (`BackgroundService` im Web) verarbeitet `New`-Tickets vorab: Ticket claimen (`Analysing`), Pipeline ausführen, Vorschlag speichern (`Suggested`). Auslöser: Start, Timer, manuell oder Queue-Signal. Batchgrösse und Retry-Limit sind konfigurierbar. Ein Claim verhindert doppelte Analyse. | M |
+| FR-29 | Öffnet der Analyst ein Ticket ohne Vorschlag, wird es mit Priorität in die Queue gestellt und die UI zeigt «wird analysiert». Das Öffnen ruft das LLM nie direkt auf. | M |
 
 ### 3.4 Batch-Verarbeitung (Submission)
 
 | ID | Anforderung | Prio |
 |---|---|---|
 | FR-30 | Console-App liest die Challenge-Datei und schreibt eine Result-JSON-Datei im selben Schema. | M |
-| FR-31 | Batch und Web verwenden dieselbe Pipeline (keine doppelte Logik). | M |
+| FR-31 | Batch, Analyse-Worker und Web verwenden dieselbe `ITriagePipeline` (keine doppelte Logik). Batch ruft sie direkt auf, ohne Worker. | M |
 | FR-32 | Der Output ist reproduzierbar (Temperature 0, fixe Seeds wo möglich). | S |
 | FR-33 | Eine Validierung prüft vor dem Export: gültiges Vokabular, Priority konsistent mit der Matrix, keine leeren Pflichtfelder. | M |
+| FR-34 | Fällt ein Analyseschritt aus (LLM nicht erreichbar, Validierung schlägt fehl), greift ein deterministischer Fallback. Nach Erreichen des Retry-Limits wird das Ticket `Failed` und lässt sich manuell neu einreihen. Ein Fehler blockiert die UI nie. | M |
 
 ---
 
@@ -111,6 +115,8 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | NFR-07 | Traces aller LLM-Aufrufe sind im Aspire Dashboard sichtbar (OpenTelemetry). | S |
 | NFR-08 | Die Priority-Matrix ist vollständig durch Unit Tests abgedeckt (25 Kombinationen). | M |
 | NFR-09 | Das Repository ist public-fähig: README mit Setup, Architektur und bekannten Limitationen. | S |
+| NFR-10 | Kein LLM-Aufruf beim Prerender oder Öffnen einer Seite. Analysen laufen nur im Worker (bzw. im Batch). | M |
+| NFR-11 | SQLite hat einen einzigen Writer: Transaktionen des Workers sind kurz (Claim und Speichern getrennt vom LLM-Aufruf), der Worker arbeitet in kleinen Batches. | M |
 
 ---
 
@@ -145,6 +151,9 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 3. **Azure-Zugang:** Stellt Swiss Life Azure-OpenAI-Keys zur Verfügung oder braucht es eigene?
 4. **Routing-Logik:** Hängt der Assignee von Business Entity oder Work type ab? Das klären die Exploration und eine Rückfrage beim Domain Owner.
 5. **Mehrere Services pro Ticket:** Sind Listen mit mehr als einem Service im Referenz-Set zu erwarten?
+6. **Analyse-Worker:** Wie oft läuft der Timer, wie gross ist der Batch, wie hoch ist das Retry-Limit? Annahme bis zur Klärung: Timer 30 s, Batch 5, 3 Versuche.
+7. **Batch und Worker:** Soll Batch die Challenge-Tickets später ebenfalls über den Worker laufen lassen (dann gäbe es nur einen Codepfad)? Aktuell ruft Batch die Pipeline direkt auf.
+8. **Re-Analyse:** Darf ein Analyst einen Vorschlag neu berechnen lassen, und was passiert mit einer bereits erfassten Entscheidung?
 
 ---
 
@@ -154,3 +163,14 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 - Fine-Tuning von Modellen
 - Authentifizierung und Rollenkonzept in der UI
 - Produktives Deployment
+- Wiedereröffnen, Zurücknehmen oder Neuanalyse eines entschiedenen Tickets
+- Wechsel des Embedding-Modells (kein Versionsschlüssel auf Vektoren)
+- Tie-Break im Routing und Kaltstart bei seltenen Services (gelten als «Low Confidence», der Analyst entscheidet)
+- Prüfung, ob Team oder Assignee noch aktiv sind
+- Duplikaterkennung und Verknüpfung von Tickets
+- Direkte Änderungen in der Datenbank (nur Ingest invalidiert einen Vorschlag)
+- PII-Maskierung, Aufbewahrung und Regionsvorgaben für Personendaten
+- Garantierte Determinismus-Reproduzierbarkeit bei Azure OpenAI
+- UI-Details des Reviews (Merge paralleler Edits, Circuit-Reconnect, Analyst-Identität)
+
+Details und aktuelles Verhalten: [architecture.md §7](architecture.md).
