@@ -1,0 +1,39 @@
+# Claude Code — personal files stay local
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Hackathon data — local only (see data/README.md)
+data/*
+!data/README.md
+
+# .NET build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.trx
+*.coverage
+coverage*.xml
+
+# IDEs / OS
+.vs/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# SQLite databases anywhere
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Secrets
+.env
+.env.*
+*.pfx
+appsettings.*.local.json

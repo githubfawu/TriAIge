@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Domain layer: intentionally no package or project references. -->
+
+</Project>

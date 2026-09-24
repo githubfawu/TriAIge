@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TicketTriage.Agents/TicketTriage.Agents.csproj" />
+    <Project Path="src/TicketTriage.AppHost/TicketTriage.AppHost.csproj" />
+    <Project Path="src/TicketTriage.Batch/TicketTriage.Batch.csproj" />
+    <Project Path="src/TicketTriage.Core/TicketTriage.Core.csproj" />
+    <Project Path="src/TicketTriage.Infrastructure/TicketTriage.Infrastructure.csproj" />
+    <Project Path="src/TicketTriage.ServiceDefaults/TicketTriage.ServiceDefaults.csproj" />
+    <Project Path="src/TicketTriage.Web/TicketTriage.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TicketTriage.Core.Tests/TicketTriage.Core.Tests.csproj" />
+  </Folder>
+</Solution>

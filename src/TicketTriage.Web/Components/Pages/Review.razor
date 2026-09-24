@@ -1,0 +1,127 @@
+@page "/review/{Id:guid}"
+@using System.Text.Json
+@using Microsoft.EntityFrameworkCore
+@using TicketTriage.Infrastructure.Persistence
+@inject IDbContextFactory<TriageDbContext> DbFactory
+@inject ISnackbar Snackbar
+
+<PageTitle>Review · TriAIge</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Review suggestion</MudText>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate Color="Color.Primary" />
+}
+else if (_suggestion is null)
+{
+    <MudAlert Severity="Severity.Warning">Suggestion @Id was not found.</MudAlert>
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Outlined Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">AI suggestion · @_suggestion.TicketKey</MudText>
+                <MudSimpleTable Dense Elevation="0">
+                    <tbody>
+                        <tr><td>Work type</td><td>@_suggestion.WorkType</td></tr>
+                        <tr><td>Affected services</td><td>@string.Join(", ", _suggestion.AffectedServices)</td></tr>
+                        <tr><td>Service team(s)</td><td>@string.Join(", ", _suggestion.ServiceTeams)</td></tr>
+                        <tr><td>Assignee</td><td>@_suggestion.Assignee</td></tr>
+                        <tr><td>Urgency / Impact</td><td>@_suggestion.Urgency / @_suggestion.Impact</td></tr>
+                        <tr><td>Priority</td><td>@_suggestion.Priority</td></tr>
+                        <tr><td>Draft comment</td><td>@_suggestion.DraftComment</td></tr>
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Outlined Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Analyst decision</MudText>
+                <MudStack Spacing="2">
+                    <MudSelect T="WorkType" Label="Work type" @bind-Value="_form.WorkType">
+                        @foreach (var value in Enum.GetValues<WorkType>())
+                        {
+                            <MudSelectItem Value="value">@value</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTextField T="string" Label="Affected services (comma-separated)" @bind-Value="_form.AffectedServices" />
+                    <MudTextField T="string" Label="Service team(s) (comma-separated)" @bind-Value="_form.ServiceTeams" />
+                    <MudTextField T="string" Label="Assignee" @bind-Value="_form.Assignee" />
+                    <MudStack Row>
+                        <MudSelect T="Urgency" Label="Urgency" @bind-Value="_form.Urgency">
+                            @foreach (var value in Enum.GetValues<Urgency>())
+                            {
+                                <MudSelectItem Value="value">@value</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudSelect T="Impact" Label="Impact" @bind-Value="_form.Impact">
+                            @foreach (var value in Enum.GetValues<Impact>())
+                            {
+                                <MudSelectItem Value="value">@value</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudStack>
+                    <MudText Typo="Typo.body2">Priority (derived): <b>@PriorityMatrix.Resolve(_form.Urgency, _form.Impact)</b></MudText>
+                    <MudTextField T="string" Label="Resolution comment" Lines="5" @bind-Value="_form.DraftComment" />
+
+                    <MudStack Row Justify="Justify.FlexEnd" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="() => NotImplemented(ReviewDecision.Approved)">Approve</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => NotImplemented(ReviewDecision.Edited)">Save edits</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => NotImplemented(ReviewDecision.Rejected)">Reject</MudButton>
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private bool _loading = true;
+    private TriageSuggestion? _suggestion;
+    private ReviewForm _form = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.TriageSuggestions.AsNoTracking().SingleOrDefaultAsync(s => s.Id == Id);
+
+        _suggestion = entity is null ? null : JsonSerializer.Deserialize<TriageSuggestion>(entity.SuggestionJson, JsonOptions);
+        _form = _suggestion is null ? new ReviewForm() : ReviewForm.From(_suggestion);
+        _loading = false;
+    }
+
+    // TODO: implement - persist the decision (and edited values) on TriageSuggestionEntity.
+    private void NotImplemented(ReviewDecision decision) =>
+        Snackbar.Add($"'{decision}' is not implemented yet.", Severity.Info);
+
+    private sealed class ReviewForm
+    {
+        public WorkType WorkType { get; set; }
+        public string? AffectedServices { get; set; }
+        public string? ServiceTeams { get; set; }
+        public string? Assignee { get; set; }
+        public Urgency Urgency { get; set; } = Urgency.Medium;
+        public Impact Impact { get; set; } = Impact.Moderate;
+        public string? DraftComment { get; set; }
+
+        public static ReviewForm From(TriageSuggestion suggestion) => new()
+        {
+            WorkType = suggestion.WorkType,
+            AffectedServices = string.Join(", ", suggestion.AffectedServices),
+            ServiceTeams = string.Join(", ", suggestion.ServiceTeams),
+            Assignee = suggestion.Assignee,
+            Urgency = suggestion.Urgency,
+            Impact = suggestion.Impact,
+            DraftComment = suggestion.DraftComment,
+        };
+    }
+}

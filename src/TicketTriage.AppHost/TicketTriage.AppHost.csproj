@@ -1,0 +1,19 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.4">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>ticket-triage-apphost</UserSecretsId>
+    <!-- DCP and the dashboard come from NuGet, so plain `dotnet run` works without the Aspire CLI bundle. -->
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TicketTriage.Web\TicketTriage.Web.csproj" />
+    <ProjectReference Include="..\TicketTriage.Batch\TicketTriage.Batch.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Aspire.Hosting.Sqlite" />
+  </ItemGroup>
+
+</Project>

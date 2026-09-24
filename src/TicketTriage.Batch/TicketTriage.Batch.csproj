@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>ticket-triage-batch</UserSecretsId>
+    <!-- Like the Web SDK: `dotnet run` uses the project folder as working directory (appsettings, ../../data paths). -->
+    <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TicketTriage.Agents\TicketTriage.Agents.csproj" />
+    <ProjectReference Include="..\TicketTriage.Infrastructure\TicketTriage.Infrastructure.csproj" />
+    <ProjectReference Include="..\TicketTriage.ServiceDefaults\TicketTriage.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

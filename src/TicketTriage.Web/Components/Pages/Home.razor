@@ -1,0 +1,91 @@
+@page "/"
+@using Microsoft.Extensions.Diagnostics.HealthChecks
+@inject HealthCheckService HealthChecks
+
+<PageTitle>Dashboard · TriAIge</PageTitle>
+
+<MudStack Row AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Dashboard</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_loading">
+        Refresh
+    </MudButton>
+</MudStack>
+
+<MudText Typo="Typo.subtitle1" Class="mb-2">System health (readiness checks)</MudText>
+
+@if (_loading && _report is null)
+{
+    <MudProgressLinear Indeterminate Color="Color.Primary" />
+}
+else if (_report is not null)
+{
+    <MudGrid>
+        @foreach (var name in DisplayedChecks)
+        {
+            var entry = _report.Entries.TryGetValue(name, out var found) ? found : (HealthReportEntry?)null;
+            <MudItem xs="12" md="6">
+                <MudCard Outlined>
+                    <MudCardHeader>
+                        <CardHeaderContent>
+                            <MudText Typo="Typo.h6">@name</MudText>
+                        </CardHeaderContent>
+                        <CardHeaderActions>
+                            <MudChip T="string" Color="@ColorFor(entry?.Status)" Variant="Variant.Filled">
+                                @(entry?.Status.ToString() ?? "Not registered")
+                            </MudChip>
+                        </CardHeaderActions>
+                    </MudCardHeader>
+                    <MudCardContent>
+                        <MudText Typo="Typo.body2">@(entry?.Description ?? "—")</MudText>
+                        @if (entry is { } e)
+                        {
+                            <MudText Typo="Typo.caption">Checked in @e.Duration.TotalMilliseconds.ToString("F0") ms</MudText>
+                            @foreach (var (key, value) in e.Data)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block">@key: @value</MudText>
+                            }
+                        }
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+
+    <MudText Typo="Typo.caption" Class="mt-4 d-block">
+        Overall: @_report.Status · last refreshed @_checkedAt.ToLocalTime().ToString("T")
+        · the agent check is cached for 60 s to save tokens.
+    </MudText>
+}
+
+@code {
+    private static readonly string[] DisplayedChecks = ["sqlite", "agent-framework"];
+
+    private HealthReport? _report;
+    private DateTimeOffset _checkedAt;
+    private bool _loading;
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        try
+        {
+            _report = await HealthChecks.CheckHealthAsync(r => r.Tags.Contains(Extensions.ReadyTag), CancellationToken.None);
+            _checkedAt = DateTimeOffset.UtcNow;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static Color ColorFor(HealthStatus? status) => status switch
+    {
+        HealthStatus.Healthy => Color.Success,
+        HealthStatus.Degraded => Color.Warning,
+        HealthStatus.Unhealthy => Color.Error,
+        _ => Color.Default,
+    };
+}

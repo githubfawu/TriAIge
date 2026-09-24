@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet format:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet clean:*)",
+      "Bash(dotnet list:*)",
+      "Bash(dotnet package list:*)",
+      "Bash(dotnet ef migrations list:*)",
+      "Bash(dotnet ef migrations add:*)",
+      "Bash(dotnet ef dbcontext info:*)",
+      "Bash(dotnet --version)",
+      "Bash(dotnet --info)",
+      "Bash(aspire --version)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "PowerShell(dotnet build:*)",
+      "PowerShell(dotnet test:*)",
+      "PowerShell(dotnet format:*)",
+      "PowerShell(dotnet restore:*)",
+      "PowerShell(dotnet ef migrations list:*)",
+      "PowerShell(dotnet ef migrations add:*)",
+      "PowerShell(git status:*)",
+      "PowerShell(git diff:*)",
+      "PowerShell(git log:*)",
+      "mcp__microsoft-learn",
+      "mcp__aspire__list_resources",
+      "mcp__aspire__list_console_logs",
+      "mcp__aspire__list_structured_logs",
+      "mcp__aspire__list_traces",
+      "mcp__aspire__list_apphosts",
+      "mcp__aspire__list_integrations",
+      "mcp__aspire__search_docs",
+      "mcp__aspire__doctor"
+    ],
+    "ask": [
+      "Bash(dotnet ef database update:*)",
+      "Bash(dotnet ef database drop:*)",
+      "Bash(dotnet ef migrations remove:*)",
+      "Bash(dotnet add package:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git clean:*)",
+      "PowerShell(dotnet ef database update:*)",
+      "PowerShell(dotnet add package:*)",
+      "PowerShell(git push:*)",
+      "mcp__aspire__execute_resource_command"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pfx)",
+      "Read(~/.microsoft/usersecrets/**)",
+      "Read(~/AppData/Roaming/Microsoft/UserSecrets/**)",
+      "Bash(dotnet user-secrets list:*)",
+      "PowerShell(dotnet user-secrets list:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)"
+    ]
+  },
+  "enabledMcpjsonServers": ["microsoft-learn", "aspire"],
+  "env": {
+    "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+    "DOTNET_NOLOGO": "1",
+    "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-files.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-csharp.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

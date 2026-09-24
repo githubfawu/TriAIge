@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "TicketTriage.Batch": {
+      "commandName": "Project",
+      "commandLineArgs": "--input ../../data/challenge.json --output ../../data/result.json",
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
