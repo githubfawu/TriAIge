@@ -81,7 +81,9 @@ public sealed class UploadIngestService(
         var entries = parsed.Entries.Select(entry => ToPreviewEntry(entry, catalog, timeProvider)).ToList();
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        var trainingDataPresent = await db.Tickets.AnyAsync(t => t.StatusId == catalog.FinishedStatusId, cancellationToken);
+        // Mirrors TrainingDataImporter.ImportAsync's real skip condition (FR5): it imports only into an empty
+        // Tickets table, so "any ticket at all" - not "any Finished ticket" - is what permanently blocks it.
+        var trainingDataPresent = await db.Tickets.AnyAsync(cancellationToken);
 
         var deduped = await ApplyDedupeAsync(entries, db, cancellationToken);
 
@@ -145,10 +147,13 @@ public sealed class UploadIngestService(
         }
 
         var summaries = validEntries.Select(e => e.Entity!.Summary).Distinct().ToList();
-        var candidates = await db.Tickets
-            .AsNoTracking()
-            .Where(t => summaries.Contains(t.Summary) && t.StatusId != catalog.FinishedStatusId)
-            .ToListAsync(cancellationToken);
+        var candidatesQuery = db.Tickets.AsNoTracking().Where(t => summaries.Contains(t.Summary));
+        if (catalog.FinishedStatusId is { } finishedId)
+        {
+            candidatesQuery = candidatesQuery.Where(t => t.StatusId != finishedId);
+        }
+
+        var candidates = await candidatesQuery.ToListAsync(cancellationToken);
 
         if (candidates.Count == 0)
         {
@@ -184,7 +189,7 @@ public sealed class UploadIngestService(
         string? decidedState =
             match.StatusId == catalog.HumanApprovedStatusId ? "Approved" :
             match.StatusId == catalog.HumanRejectedStatusId ? "Rejected" :
-            match.StatusId == catalog.NewStatusId && TicketPredicates.HasSuggestionCompiled(match) ? "Pending" :
+            catalog.NonTerminalStatusIds.Contains(match.StatusId) && TicketPredicates.HasSuggestionCompiled(match) ? "Pending" :
             null;
 
         if (decidedState is not null)
@@ -207,7 +212,7 @@ public sealed class UploadIngestService(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var entity = await db.Tickets.AsNoTracking().SingleOrDefaultAsync(t => t.Id == ticketId, cancellationToken);
-        if (entity is null || entity.StatusId != catalog.NewStatusId || TicketPredicates.HasSuggestionCompiled(entity))
+        if (entity is null || !catalog.NonTerminalStatusIds.Contains(entity.StatusId) || TicketPredicates.HasSuggestionCompiled(entity))
         {
             return false;
         }

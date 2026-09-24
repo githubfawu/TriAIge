@@ -26,7 +26,10 @@ public sealed class ReviewDecisionServiceTests : IAsyncLifetime
 
     public async ValueTask DisposeAsync() => await _database.DisposeAsync();
 
-    private async Task<int> InsertPendingTicketAsync(CancellationToken cancellationToken)
+    private Task<int> InsertPendingTicketAsync(CancellationToken cancellationToken) =>
+        InsertTicketWithSuggestionAsync(_catalog.NewStatusId, cancellationToken);
+
+    private async Task<int> InsertTicketWithSuggestionAsync(int statusId, CancellationToken cancellationToken)
     {
         await using var db = _database.CreateContext();
         var ticket = new TicketEntity
@@ -34,7 +37,7 @@ public sealed class ReviewDecisionServiceTests : IAsyncLifetime
             WorkTypeId = _catalog.DefaultWorkTypeId,
             Summary = "Original summary",
             AssigneeChanged = null,
-            StatusId = _catalog.NewStatusId,
+            StatusId = statusId,
             CreatedDate = DateTime.UtcNow,
             // A suggestion already present (mirrors what SuggestionWriter would have written, FR7).
             WorkTypeChangedId = _catalog.FindWorkTypeId("Service Request"),
@@ -212,5 +215,38 @@ public sealed class ReviewDecisionServiceTests : IAsyncLifetime
         var after = Snapshot();
         after.Assignee.Should().Be(before.Assignee);
         after.StatusId.Should().Be(before.StatusId);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_ReviewedTicketWithSuggestion_Succeeds_PerLifecycleRule()
+    {
+        // A ticket that already advanced New -> Reviewed (SuggestionWriter's normal outcome) must still be
+        // approvable - "not decided, not Finished" is the rule, not "must still be New".
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        var ticketId = await InsertTicketWithSuggestionAsync(_catalog.ReviewedStatusId!.Value, cancellationToken);
+        var form = MakeForm(ticketId);
+
+        var result = await _decisions.ApproveAsync(ticketId, form, cancellationToken);
+
+        result.Outcome.Should().Be(DecisionOutcome.Saved);
+
+        await using var db = _database.CreateContext();
+        var ticket = await db.Tickets.AsNoTracking().SingleAsync(t => t.Id == ticketId, cancellationToken);
+        ticket.StatusId.Should().Be(_catalog.HumanApprovedStatusId);
+    }
+
+    [Fact]
+    public async Task RejectAsync_ReviewedTicketWithSuggestion_Succeeds_PerLifecycleRule()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        var ticketId = await InsertTicketWithSuggestionAsync(_catalog.ReviewedStatusId!.Value, cancellationToken);
+
+        var result = await _decisions.RejectAsync(ticketId, "Not relevant", cancellationToken);
+
+        result.Outcome.Should().Be(DecisionOutcome.Saved);
+
+        await using var db = _database.CreateContext();
+        var ticket = await db.Tickets.AsNoTracking().SingleAsync(t => t.Id == ticketId, cancellationToken);
+        ticket.StatusId.Should().Be(_catalog.HumanRejectedStatusId);
     }
 }

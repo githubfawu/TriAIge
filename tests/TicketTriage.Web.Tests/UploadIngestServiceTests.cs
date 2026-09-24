@@ -78,7 +78,7 @@ public sealed class UploadIngestServiceTests : IAsyncLifetime
     public async Task SaveAndEnqueueAsync_TrainingDataPresent_MapsImpactAndTruncatesText_PerImporterRules()
     {
         var cancellationToken = Xunit.TestContext.Current.CancellationToken;
-        await SeedFinishedTicketAsync(cancellationToken);
+        await SeedExistingTicketAsync(cancellationToken);
 
         var preview = await _service.PreviewAsync(await File.ReadAllBytesAsync(FixturePath, cancellationToken), cancellationToken);
         preview.TrainingDataPresent.Should().BeTrue();
@@ -150,7 +150,7 @@ public sealed class UploadIngestServiceTests : IAsyncLifetime
     public async Task SaveAndEnqueueAsync_SameFileAfterRestart_ZeroNewRows_RequeuesUnanalysed_SkipsDecided_PerAC4()
     {
         var cancellationToken = Xunit.TestContext.Current.CancellationToken;
-        await SeedFinishedTicketAsync(cancellationToken);
+        await SeedExistingTicketAsync(cancellationToken);
         var bytes = await File.ReadAllBytesAsync(FixturePath, cancellationToken);
 
         var firstPreview = await _service.PreviewAsync(bytes, cancellationToken);
@@ -202,7 +202,7 @@ public sealed class UploadIngestServiceTests : IAsyncLifetime
 
         await using (var db = _database.CreateContext())
         {
-            (await db.Tickets.CountAsync(cancellationToken)).Should().Be(6); // 5 from the first save + 1 Finished, no new rows
+            (await db.Tickets.CountAsync(cancellationToken)).Should().Be(6); // 5 from the first save + 1 pre-existing seed ticket, no new rows
         }
 
         restartedStore.Get(unanalysedId1)!.Phase.Should().Be(QueuePhase.Queued);
@@ -213,37 +213,66 @@ public sealed class UploadIngestServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task PreviewAsync_MatchOnlyAgainstFinishedTraining_IsNeverADuplicate_PerFR4()
+    public async Task PreviewAsync_MatchOnlyAgainstLegacyFinishedTraining_IsNeverADuplicate_PerFR4_WhenFinishedExists()
     {
+        // Simulates an old local DB that still has "Finished" (the current seed dropped it): a fresh catalog/
+        // service is required since _catalog/_service already loaded (without Finished) in InitializeAsync.
         var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        await _database.AddLegacyFinishedStatusAsync(cancellationToken);
+        var legacyCatalog = new LookupCatalog(_database.CreateFactory());
+        await legacyCatalog.EnsureLoadedAsync(cancellationToken);
+        var legacyService = new UploadIngestService(_database.CreateFactory(), legacyCatalog, _store, TimeProvider.System);
 
         // A Finished (training) ticket with the exact same summary/description as fixture entry #0.
         await using (var db = _database.CreateContext())
         {
             db.Tickets.Add(new TicketEntity
             {
-                WorkTypeId = _catalog.DefaultWorkTypeId,
+                WorkTypeId = legacyCatalog.DefaultWorkTypeId,
                 Summary = "Outlook keeps freezing when opening shared calendars",
                 Description = "Several analysts report that Outlook hangs for 30+ seconds whenever a shared calendar is opened.",
-                StatusId = _catalog.FinishedStatusId,
+                StatusId = legacyCatalog.FinishedStatusId!.Value,
                 CreatedDate = DateTime.UtcNow,
             });
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        var preview = await _service.PreviewAsync(await File.ReadAllBytesAsync(FixturePath, cancellationToken), cancellationToken);
+        var preview = await legacyService.PreviewAsync(await File.ReadAllBytesAsync(FixturePath, cancellationToken), cancellationToken);
 
         preview.Entries[0].DbMatch.Should().Be(DbMatchKind.New);
     }
 
-    private async Task SeedFinishedTicketAsync(CancellationToken cancellationToken)
+    [Fact]
+    public async Task PreviewAsync_EmptyDatabase_TrainingDataPresentIsFalse_PerFR5ImportTrap()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+
+        var preview = await _service.PreviewAsync(await File.ReadAllBytesAsync(FixturePath, cancellationToken), cancellationToken);
+
+        preview.TrainingDataPresent.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_AnyExistingTicket_TrainingDataPresentIsTrue_PerFR5ImportTrap()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        await SeedExistingTicketAsync(cancellationToken);
+
+        var preview = await _service.PreviewAsync(await File.ReadAllBytesAsync(FixturePath, cancellationToken), cancellationToken);
+
+        preview.TrainingDataPresent.Should().BeTrue();
+    }
+
+    /// <summary>Makes the DB non-empty (any status works: <c>TrainingDataPresent</c> now mirrors
+    /// <c>TrainingDataImporter</c>'s real skip condition, "any ticket at all", not "any Finished ticket").</summary>
+    private async Task SeedExistingTicketAsync(CancellationToken cancellationToken)
     {
         await using var db = _database.CreateContext();
         db.Tickets.Add(new TicketEntity
         {
             WorkTypeId = _catalog.DefaultWorkTypeId,
-            Summary = "Historical training ticket",
-            StatusId = _catalog.FinishedStatusId,
+            Summary = "Pre-existing ticket",
+            StatusId = _catalog.HumanApprovedStatusId,
             CreatedDate = DateTime.UtcNow,
         });
         await db.SaveChangesAsync(cancellationToken);

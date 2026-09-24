@@ -87,6 +87,27 @@ public sealed class SuggestionWriterTests : IAsyncLifetime
         ticket.UrgencyChangedId.Should().Be(_catalog.FindUrgencyId("Low"));
     }
 
+    [Fact]
+    public async Task WriteAsync_SetsStatusToReviewed_WhenReviewedStatusExists_PerLifecycleRule()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        var ticketId = await InsertTicketAsync(cancellationToken);
+
+        var suggestion = new TriageSuggestion
+        {
+            TicketKey = "TT-1",
+            WorkType = WorkType.Incident,
+            Urgency = Urgency.Medium,
+            Impact = Impact.Moderate,
+        };
+
+        await _writer.WriteAsync(ticketId, suggestion, cancellationToken);
+
+        await using var db = _database.CreateContext();
+        var ticket = await db.Tickets.AsNoTracking().SingleAsync(t => t.Id == ticketId, cancellationToken);
+        ticket.StatusId.Should().Be(_catalog.ReviewedStatusId!.Value);
+    }
+
     private async Task<int> InsertTicketAsync(CancellationToken cancellationToken)
     {
         await using var db = _database.CreateContext();

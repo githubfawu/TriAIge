@@ -25,8 +25,9 @@ public interface IReviewDecisionService
 }
 
 /// <summary>Persists a human review decision via a single conditional <c>UPDATE</c> (Leitplanke 3/4): it only
-/// applies while the ticket is still New with a suggestion, so two analysts deciding the same ticket never both
-/// win (AC10) and no transaction ever spans a pipeline call.</summary>
+/// applies while the ticket is still non-terminal (New/Reviewing/Reviewed, whichever exist in the current seed)
+/// with a suggestion, so two analysts deciding the same ticket never both win (AC10) and no transaction ever
+/// spans a pipeline call.</summary>
 public sealed class ReviewDecisionService(
     IDbContextFactory<TriageDbContext> dbFactory,
     LookupCatalog catalog,
@@ -56,7 +57,7 @@ public sealed class ReviewDecisionService(
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         var rows = await db.Tickets
-            .Where(t => t.Id == ticketId && t.StatusId == catalog.NewStatusId)
+            .Where(t => t.Id == ticketId && catalog.NonTerminalStatusIds.Contains(t.StatusId))
             .Where(TicketPredicates.HasSuggestion)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(t => t.WorkTypeId, workTypeId)
@@ -103,7 +104,7 @@ public sealed class ReviewDecisionService(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var rows = await db.Tickets
-            .Where(t => t.Id == ticketId && t.StatusId == catalog.NewStatusId)
+            .Where(t => t.Id == ticketId && catalog.NonTerminalStatusIds.Contains(t.StatusId))
             .Where(TicketPredicates.HasSuggestion)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(t => t.WorkTypeChangedId, (int?)null)

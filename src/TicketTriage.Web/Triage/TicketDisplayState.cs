@@ -34,7 +34,7 @@ public static class TicketDisplayStateMapper
             return TicketDisplayState.Rejected;
         }
 
-        if (facts.StatusId == catalog.NewStatusId && facts.HasSuggestion)
+        if (catalog.NonTerminalStatusIds.Contains(facts.StatusId) && facts.HasSuggestion)
         {
             return TicketDisplayState.Pending;
         }

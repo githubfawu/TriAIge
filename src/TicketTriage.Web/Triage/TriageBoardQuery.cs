@@ -82,12 +82,16 @@ public sealed class TriageBoardQuery(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
-        // Cheap SQL pre-filter (Finished == training data, ~20k rows); the exact "is this shown" rule is
-        // TicketDisplayStateMapper below, applied in memory since the candidate set here is small.
-        var candidates = await db.Tickets
-            .AsNoTracking()
-            .Where(t => t.StatusId != catalog.FinishedStatusId)
-            .ToListAsync(cancellationToken);
+        // Cheap SQL pre-filter (Finished == training data, ~20k rows) - only when the current seed even has a
+        // Finished status; the exact "is this shown" rule is TicketDisplayStateMapper below, applied in memory
+        // since the candidate set here is small.
+        var candidatesQuery = db.Tickets.AsNoTracking();
+        if (catalog.FinishedStatusId is { } finishedId)
+        {
+            candidatesQuery = candidatesQuery.Where(t => t.StatusId != finishedId);
+        }
+
+        var candidates = await candidatesQuery.ToListAsync(cancellationToken);
 
         var rows = new List<TicketBoardRow>(candidates.Count);
         foreach (var ticket in candidates)
@@ -195,7 +199,7 @@ public sealed class TriageBoardQuery(
             ticket.Description,
             [.. ticket.Comments.Select(c => c.CommentText)],
             state,
-            ticket.StatusId == catalog.FinishedStatusId,
+            catalog.IsFinished(ticket.StatusId),
             ramEntry?.FailureReason,
             ramEntry?.RejectReason,
             catalog.WorkTypeNames.GetValueOrDefault(ticket.WorkTypeId, "—"),
@@ -221,7 +225,7 @@ public sealed class TriageBoardQuery(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         return await db.Tickets.AsNoTracking()
-            .Where(t => t.Id != excludeId && t.StatusId == catalog.NewStatusId)
+            .Where(t => t.Id != excludeId && catalog.NonTerminalStatusIds.Contains(t.StatusId))
             .Where(TicketPredicates.HasSuggestion)
             .OrderBy(t => t.Id)
             .Select(t => (int?)t.Id)

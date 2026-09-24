@@ -40,8 +40,8 @@ else if (_preview is { } preview)
     @if (!preview.TrainingDataPresent)
     {
         <MudAlert Severity="Severity.Warning" Class="mb-2">
-            No training data found (no ticket with status "Finished" yet). Saving now may permanently block the
-            later training-data import.
+            The database has no tickets yet. The training import only runs into an empty database, so saving now
+            will permanently prevent it. Import the training data first or confirm.
         </MudAlert>
         <MudCheckBox T="bool" @bind-Value="_confirmWithoutTrainingData" Label="Save anyway" Class="mb-2" />
     }

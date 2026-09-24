@@ -26,24 +26,58 @@ public sealed class TriageBoardQueryTests : IAsyncLifetime
     public async ValueTask DisposeAsync() => await _database.DisposeAsync();
 
     [Fact]
-    public async Task GetRowsAsync_FinishedTrainingTicket_NeverIncluded_PerFR13()
+    public async Task GetRowsAsync_LegacyFinishedTrainingTicket_NeverIncluded_PerFR13()
     {
+        // Simulates an old local DB that still has "Finished" (the current seed dropped it): a fresh catalog is
+        // required here since _catalog already loaded (without Finished) in InitializeAsync.
         var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        await _database.AddLegacyFinishedStatusAsync(cancellationToken);
+        var legacyCatalog = new LookupCatalog(_database.CreateFactory());
+        await legacyCatalog.EnsureLoadedAsync(cancellationToken);
+        var legacyQuery = new TriageBoardQuery(_database.CreateFactory(), legacyCatalog, _store);
+
         await using (var db = _database.CreateContext())
         {
             db.Tickets.Add(new TicketEntity
             {
-                WorkTypeId = _catalog.DefaultWorkTypeId,
+                WorkTypeId = legacyCatalog.DefaultWorkTypeId,
                 Summary = "Training ticket",
-                StatusId = _catalog.FinishedStatusId,
+                StatusId = legacyCatalog.FinishedStatusId!.Value,
                 CreatedDate = DateTime.UtcNow,
             });
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        var rows = await _query.GetRowsAsync(cancellationToken);
+        var rows = await legacyQuery.GetRowsAsync(cancellationToken);
 
         rows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetRowsAsync_ReviewedTicketWithSuggestion_IsPending_PerLifecycleRule()
+    {
+        var cancellationToken = Xunit.TestContext.Current.CancellationToken;
+        int ticketId;
+        await using (var db = _database.CreateContext())
+        {
+            var ticket = new TicketEntity
+            {
+                WorkTypeId = _catalog.DefaultWorkTypeId,
+                Summary = "Reviewed with a suggestion",
+                StatusId = _catalog.ReviewedStatusId!.Value,
+                CreatedDate = DateTime.UtcNow,
+                WorkTypeChangedId = _catalog.DefaultWorkTypeId,
+            };
+            db.Tickets.Add(ticket);
+            await db.SaveChangesAsync(cancellationToken);
+            ticketId = ticket.Id;
+        }
+
+        _store.Register(ticketId, "TT-2", new Ticket { Key = "TT-2", Summary = "Reviewed with a suggestion" }, uploadId: 1);
+
+        var rows = await _query.GetRowsAsync(cancellationToken);
+
+        rows.Should().ContainSingle(r => r.Id == ticketId && r.State == TicketDisplayState.Pending);
     }
 
     [Fact]

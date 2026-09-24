@@ -51,7 +51,25 @@ public sealed class LookupCatalog(IDbContextFactory<TriageDbContext> dbFactory)
 
     public int HumanRejectedStatusId { get; private set; }
 
-    public int FinishedStatusId { get; private set; }
+    // Reviewing/Reviewed/Finished are read by name, never required: the team's status schema is still in flux
+    // (main added Reviewing/Reviewed and dropped Finished after this Web slice was built) and an old local DB
+    // may still carry "Finished" without ever having had "Reviewing"/"Reviewed". Every consumer must go through
+    // NonTerminalStatusIds/IsDecided/IsFinished below instead of assuming any one of these three exists.
+    public int? ReviewingStatusId { get; private set; }
+
+    public int? ReviewedStatusId { get; private set; }
+
+    public int? FinishedStatusId { get; private set; }
+
+    /// <summary>Status ids a ticket can sit in while it's still awaiting a human decision: always New, plus
+    /// Reviewing/Reviewed when the current seed data has them. Used everywhere "not decided and not training"
+    /// needs to be expressed as a status set (Pending, the writer's/decision service's conditional updates, the
+    /// "next pending" query, dedupe's re-queue case).</summary>
+    public IReadOnlyList<int> NonTerminalStatusIds { get; private set; } = [];
+
+    public bool IsDecided(int statusId) => statusId == HumanApprovedStatusId || statusId == HumanRejectedStatusId;
+
+    public bool IsFinished(int statusId) => FinishedStatusId is { } finishedId && statusId == finishedId;
 
     public async Task EnsureLoadedAsync(CancellationToken cancellationToken)
     {
@@ -90,7 +108,22 @@ public sealed class LookupCatalog(IDbContextFactory<TriageDbContext> dbFactory)
             NewStatusId = RequireStatus("New");
             HumanApprovedStatusId = RequireStatus("HumanApproved");
             HumanRejectedStatusId = RequireStatus("HumanRejected");
-            FinishedStatusId = RequireStatus("Finished");
+            ReviewingStatusId = FindStatusOrNull("Reviewing");
+            ReviewedStatusId = FindStatusOrNull("Reviewed");
+            FinishedStatusId = FindStatusOrNull("Finished");
+
+            var nonTerminal = new List<int> { NewStatusId };
+            if (ReviewingStatusId is { } reviewingId)
+            {
+                nonTerminal.Add(reviewingId);
+            }
+
+            if (ReviewedStatusId is { } reviewedId)
+            {
+                nonTerminal.Add(reviewedId);
+            }
+
+            NonTerminalStatusIds = nonTerminal;
 
             _loaded = true;
         }
@@ -123,6 +156,8 @@ public sealed class LookupCatalog(IDbContextFactory<TriageDbContext> dbFactory)
             ? id
             : throw new InvalidOperationException(
                 $"Seed data is missing the '{name}' status; check TriageDbContext.OnModelCreating.");
+
+    private int? FindStatusOrNull(string name) => _statusIds.TryGetValue(name, out var id) ? id : null;
 
     private static async Task<IReadOnlyDictionary<string, int>> LoadByNameAsync<TEntity>(
         IQueryable<TEntity> lookup, CancellationToken cancellationToken)
