@@ -173,6 +173,7 @@ public partial class Review : IAsyncDisposable
         { Decision.Decision: ReviewDecision.Rejected } => TicketDisplayState.Rejected,
         { IsFailed: true } => TicketDisplayState.Failed,
         { IsAnalysing: true } => TicketDisplayState.Analysing,
+        { Suggestion: null } => TicketDisplayState.Queued,
         _ => TicketDisplayState.Pending,
     };
 

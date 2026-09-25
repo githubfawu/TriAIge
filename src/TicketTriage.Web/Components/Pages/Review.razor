@@ -55,9 +55,13 @@ else
         </MudItem>
 
         <MudItem xs="12" md="6">
-            @if (_state is TicketDisplayState.Analysing)
+            @if (_state is TicketDisplayState.Analysing or TicketDisplayState.Queued)
             {
-                <MudAlert Severity="Severity.Info" Class="mb-2">Agent is analysing…</MudAlert>
+                <MudAlert Severity="Severity.Info" Class="mb-2">
+                    @(_state == TicketDisplayState.Queued
+                        ? "Queued - the agent will analyse this ticket shortly. This page updates by itself."
+                        : "Agent is analysing…")
+                </MudAlert>
                 <MudProgressLinear Indeterminate Color="Color.Info" />
             }
             else if (_state is TicketDisplayState.Failed)
