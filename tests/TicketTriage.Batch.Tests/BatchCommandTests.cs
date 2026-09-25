@@ -63,6 +63,20 @@ public sealed class BatchCommandTests : IDisposable
         AssertNothingWritten();
     }
 
+    [Theory]
+    [InlineData("{\"runId\":\"r\"}")]
+    [InlineData("{\"records\":[]}")]
+    public async Task ExecuteAsync_EnvelopeWithoutUsableRecords_Returns1AndKeepsExistingOutput_PerAC1(string content)
+    {
+        SeedOldOutput();
+
+        var exitCode = await RunAsync(CreateRunner(WriteInput(content)));
+
+        exitCode.Should().Be(1);
+        _stderr.ToString().Should().NotBeNullOrWhiteSpace();
+        AssertNothingWritten();
+    }
+
     [Fact]
     public async Task ExecuteAsync_MissingInputFile_Returns1AndCreatesNoOutput_PerAC4()
     {

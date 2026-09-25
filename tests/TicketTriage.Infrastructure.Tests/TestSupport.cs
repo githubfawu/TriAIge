@@ -1,5 +1,6 @@
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
+using TicketTriage.Infrastructure.Routing;
 
 namespace TicketTriage.Infrastructure.Tests;
 
@@ -44,7 +45,7 @@ internal sealed class FakeClassifier(CallLog log) : ITicketClassifier
     public Task<TicketClassification> ClassifyAsync(Ticket ticket, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
     {
         log.Steps.Add("classify");
-        return Task.FromResult(new TicketClassification(WorkType.Incident, ["Email"], Urgency.High, Impact.Significant));
+        return Task.FromResult(new TicketClassification(WorkType.Incident, [FakeRouting.Service], Urgency.High, Impact.Significant));
     }
 }
 
@@ -53,16 +54,19 @@ internal sealed class FakeRouter(CallLog log) : IRoutingResolver
     public Task<RoutingDecision> ResolveAsync(Ticket ticket, TicketClassification classification, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
     {
         log.Steps.Add("route");
-        return Task.FromResult(new RoutingDecision(["Team A"], "alice"));
+        return Task.FromResult(FakeRouting.Statistics.Resolve(classification.AffectedServices));
     }
 }
 
-internal sealed class FakeDrafter(CallLog log) : IResolutionDrafter
+internal sealed class FakeDrafter(CallLog log, ResolutionStatus status = ResolutionStatus.Clarification) : IResolutionDrafter
 {
-    public Task<string> DraftAsync(Ticket ticket, TicketClassification classification, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
+    public List<RoutingDecision> Routings { get; } = [];
+
+    public Task<ResolutionDraft> DraftAsync(Ticket ticket, TicketClassification classification, RoutingDecision routing, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
     {
         log.Steps.Add("draft");
-        return Task.FromResult("draft text");
+        Routings.Add(routing);
+        return Task.FromResult(new ResolutionDraft(status, "draft text"));
     }
 }
 
@@ -110,7 +114,7 @@ internal sealed class ScriptedClassifier(int? failures = 0, Func<CancellationTok
             throw new InvalidOperationException(ticket.Summary);
         }
 
-        return new TicketClassification(WorkType.Incident, ["Email"], Urgency.High, Impact.Significant);
+        return new TicketClassification(WorkType.Incident, [FakeRouting.Service], Urgency.High, Impact.Significant);
     }
 }
 
@@ -118,10 +122,12 @@ internal sealed class ScriptedDrafter(int failures = 0, string draft = "draft te
 {
     public int Calls { get; private set; }
 
-    public Task<string> DraftAsync(Ticket ticket, TicketClassification classification, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
+    public Task<ResolutionDraft> DraftAsync(Ticket ticket, TicketClassification classification, RoutingDecision routing, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
     {
         Calls++;
-        return Calls <= failures ? throw new InvalidOperationException("draft failed") : Task.FromResult(draft);
+        return Calls <= failures
+            ? throw new InvalidOperationException("draft failed")
+            : Task.FromResult(new ResolutionDraft(ResolutionStatus.Done, draft));
     }
 }
 
@@ -136,8 +142,23 @@ internal sealed class FixedSimilarSource(params SimilarTicket[] similar) : ISimi
     }
 }
 
-internal sealed class ThrowingRouter : IRoutingResolver
+
+/// <summary>Statistics shared by the pipeline fakes: the first catalog service routes to "Team A" / "alice".</summary>
+internal static class FakeRouting
+{
+    public static readonly string Service = ServiceCatalog.All[0].Name;
+
+    public static RoutingStatistics Statistics { get; } = RoutingStatistics.Build([(Service, "Team A", "alice", 1)]);
+}
+
+internal sealed class FakeRoutingStatisticsSource(RoutingStatistics? statistics = null, bool fail = false) : IRoutingStatisticsSource
+{
+    public ValueTask<RoutingStatistics> GetAsync(CancellationToken cancellationToken) =>
+        fail ? throw new InvalidOperationException("statistics down") : ValueTask.FromResult(statistics ?? FakeRouting.Statistics);
+}
+
+internal sealed class FixedRouter(RoutingDecision decision) : IRoutingResolver
 {
     public Task<RoutingDecision> ResolveAsync(Ticket ticket, TicketClassification classification, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken) =>
-        throw new InvalidOperationException("router down");
+        Task.FromResult(decision);
 }

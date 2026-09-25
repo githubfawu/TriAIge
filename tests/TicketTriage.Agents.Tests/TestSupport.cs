@@ -93,5 +93,5 @@ internal static class Samples
         """{"workType":"Incident","affectedServices":["Trading Platform"],"urgency":"High","impact":"No Impact"}""";
 
     public const string ValidDraft =
-        """{"resolutionStatus":"Cannot Reproduce","language":"English","comment":"Login worked on our side; please retry and report if it persists."}""";
+        """{"resolutionStatus":"cannot reproduce","language":"English","comment":"Login worked on our side; please retry and report if it persists."}""";
 }

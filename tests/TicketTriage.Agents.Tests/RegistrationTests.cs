@@ -20,6 +20,5 @@ public class RegistrationTests
 
         scope.ServiceProvider.GetRequiredService<ITicketClassifier>().Should().BeOfType<LlmTicketClassifier>();
         scope.ServiceProvider.GetRequiredService<IResolutionDrafter>().Should().BeOfType<LlmResolutionDrafter>();
-        scope.ServiceProvider.GetRequiredService<IResolutionDraftAgent>().Should().BeOfType<LlmResolutionDrafter>();
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using TicketTriage.Agents.Classification;
+using TicketTriage.Agents.Services;
 using TicketTriage.Core.Domain;
 
 namespace TicketTriage.Agents.Tests;
@@ -32,6 +33,28 @@ public class LlmTicketClassifierTests
     public async Task Invalid_output_throws(string reply)
     {
         var sut = Create(new FakeChatClient(reply));
+
+        var act = () => sut.ClassifyAsync(Samples.Ticket(), [], CancellationToken.None);
+
+        await act.Should().ThrowAsync<Exception>();
+    }
+
+    [Fact]
+    public async Task Real_catalog_canonicalises_service_case_PerAC5()
+    {
+        var reply = """{"workType":"Incident","affectedServices":["trading PLATFORM"],"urgency":"High","impact":"Major"}""";
+        var sut = new LlmTicketClassifier(new FakeChatClient(reply), new CoreServiceCatalogProvider(), NullLogger<LlmTicketClassifier>.Instance);
+
+        var result = await sut.ClassifyAsync(Samples.Ticket(), [], CancellationToken.None);
+
+        result.AffectedServices.Should().Equal("Trading Platform");
+    }
+
+    [Fact]
+    public async Task Real_catalog_rejects_unknown_service_PerAC5()
+    {
+        var reply = """{"workType":"Incident","affectedServices":["Mainframe"],"urgency":"High","impact":"Major"}""";
+        var sut = new LlmTicketClassifier(new FakeChatClient(reply), new CoreServiceCatalogProvider(), NullLogger<LlmTicketClassifier>.Instance);
 
         var act = () => sut.ClassifyAsync(Samples.Ticket(), [], CancellationToken.None);
 

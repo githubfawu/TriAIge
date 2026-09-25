@@ -2,7 +2,7 @@
 
 How TicketTriage is built and how a ticket flows through it. Requirements: [requirements.md](requirements.md). Why it's built this way: [adr/](adr/).
 
-> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing is still a stub. Batch (`BatchRunner`: challenge.json → pipeline → result.json) is implemented as a **transitional** direct pipeline call ([features/batch-runner](features/batch-runner/README.md)); the target is ingest → worker → export from the DB (§5.4). Ingest, analysis worker and review persistence are planned (§5).
+> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing (`StatisticsRoutingResolver`, majority vote from the training data) is implemented too; no stub remains. Batch (`BatchRunner`: challenge file → pipeline → result.json) is implemented as a **transitional** direct pipeline call ([features/batch-runner](features/batch-runner/README.md)); the target is ingest → worker → export from the DB (§5.4). Ingest, analysis worker and review persistence are planned (§5).
 
 ## 1. System context
 
@@ -27,7 +27,7 @@ flowchart LR
     web -- "IChatClient" --> llm
     batch -. "IChatClient (today only, transitional)" .-> llm
     files -- "training import" --> web
-    files -- "challenge.json" --> batch
+    files -- "challenge file" --> batch
     batch -- "result.json" --> jury
     web -. OTel .-> dash
     batch -. OTel .-> dash
@@ -40,7 +40,7 @@ All tickets share **one** pipeline implementation (FR-31). Target (decided 2026-
 ```mermaid
 flowchart BT
     core["Core<br/>domain records, enums, PriorityMatrix,<br/>ServiceCatalog, pipeline ports"]
-    infra["Infrastructure<br/>EF Core/SQLite, import, pipeline, similar-ticket retrieval, stubs"]
+    infra["Infrastructure<br/>EF Core/SQLite, import, pipeline, similar-ticket retrieval, routing statistics"]
     agents["Agents<br/>IChatClient factory, agents, prompts"]
     web["Web<br/>Blazor UI, HITL"]
     batch["Batch<br/>challenge → result"]
@@ -64,7 +64,7 @@ Core has no references, and all dependencies point inward. Pipeline steps are Co
 
 ```mermaid
 flowchart LR
-    json[/training.json<br/>20k noisy tickets/] --> imp["Import<br/>idempotent (FR-01)"]
+    json[/training file<br/>20k noisy tickets/] --> imp["Import<br/>idempotent (FR-01)"]
     imp --> clean["Clean resolutions<br/>drop templates, 'Problem fixed' (FR-02)"]
     clean --> emb["Embed summary + description<br/>dedupe, cache (FR-03)"]
     clean --> stats["Routing statistics<br/>service→team, (service,team)→assignee (FR-04)"]
@@ -75,7 +75,8 @@ flowchart LR
 | Step | Status |
 |---|---|
 | Import | implemented (`TrainingDataImporter`) |
-| Clean, embed, routing stats, filter | planned |
+| Routing stats (in memory, `RoutingStatisticsProvider`) | implemented |
+| Clean, embed, filter | planned |
 
 The training set's **Priority, Urgency and Impact are random**. They are never used as labels, as few-shot examples or in statistics.
 
@@ -116,10 +117,10 @@ flowchart LR
 | Step | Core port | Decided by | Status |
 |---|---|---|---|
 | 1 Normalize & retrieve | `TicketNormalizer` (implemented) + `ISimilarTicketSource` | code (TF-IDF + cosine kNN over `Description`, in memory) | normalize and `DbSimilarTicketSource` implemented ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)); no embeddings / BM25 |
-| 2 Classify | `ITicketClassifier` | LLM, validated against the service catalog (`IServiceCatalogProvider`) / enums | implemented (`LlmTicketClassifier`); `ServiceCatalog` in Core still has placeholder names |
-| 3 Route | `IRoutingResolver` | code (majority vote), LLM never invents names | stub |
+| 2 Classify | `ITicketClassifier` | LLM, validated against the service catalog (`IServiceCatalogProvider`) / enums | implemented (`LlmTicketClassifier`); `ServiceCatalog` holds the 20 real names |
+| 3 Route | `IRoutingResolver` | code (majority vote over `RoutingStatistics`, ties alphabetical), LLM never invents names | implemented (`StatisticsRoutingResolver`; statistics built once per process, no schema change) |
 | 4 Assess & prioritize | `ITicketClassifier` + `PriorityMatrix` | LLM (urgency, impact) → **code** (priority) | implemented (urgency + impact come from the same LLM call as step 2; matrix in Core) |
-| 5 Draft & validate | `IResolutionDrafter` + `SuggestionValidator` | LLM draft from cleaned templates → code validation (FR-33) | drafter implemented for the **comment** (`LlmResolutionDrafter`); **resolution status not implemented** (produced Agents-side only, `TriageSuggestion.ResolutionStatus` stays null, later cycle). Validator **partial** (enums, at least one service, comment; still missing: team, assignee, priority consistency, resolution status, services against `ServiceCatalog`), target is all 7 fields (FR-33) |
+| 5 Draft & validate | `IResolutionDrafter` + `SuggestionValidator` | LLM draft from cleaned templates → code validation (FR-33) | drafter implemented (`LlmResolutionDrafter`, prompt `drafter-v2`): the Core port `DraftAsync(ticket, classification, routing, similar)` returns `ResolutionDraft(Status, Comment)`; the pipeline sets `TriageSuggestion.ResolutionStatus` and `TriageResult.Resolution` writes it in the lowercase export vocabulary (`done`, `cancelled`, `clarification`, `cannot reproduce`). An unknown model status throws, so retry and fallback apply; the fallback status is the majority of the similar tickets' statuses (ties: summed score, then enum order), else `done`. Validator checks all 7 fields (FR-33): enums, canonical `ServiceCatalog` names, team and assignee equal to the routing statistics for the first service (none for an unknown service), priority = matrix, resolution status, comment. The fallback takes its routing from the same statistics, so it is always consistent |
 | Orchestration | `ITriagePipeline` (analysis only, stream) | code: sequential, timeout, retry, failure log, fallback (FR-34…36) | implemented |
 | Input stream | `ITicketSource` | code | `DbTicketSource` implemented (streams `New` tickets from SQLite), registered in DI, no caller yet |
 | Failure log | `ITriageFailureStore` (`EfTriageFailureStore`) | code, `Ticket.Retries` + table `TriageFailure` | implemented |
@@ -132,11 +133,11 @@ flowchart LR
 
 > There are no confidence values, no `LowConfidence` flag and no per-decision reasoning (decision: not needed, FR-18 dropped). The suggestion only carries the keys of the reference tickets (FR-17).
 >
-> **Seven output fields.** The scored fields are work type, affected service, service team(s), assignee, priority, resolution status and resolution comment (requirements §2). Validation (FR-33) has to cover all seven. **Resolution status is not implemented**: `TriageSuggestion.ResolutionStatus` exists but is always null, `TriageResult` has no field for it, and only `IResolutionDraftAgent` in Agents produces it. It is planned for a later cycle. Today's `SuggestionValidator` checks work type, urgency, impact, at least one service and the comment.
+> **Seven output fields.** The scored fields are work type, affected service, service team(s), assignee, priority, resolution status and resolution comment (requirements §2). Validation (FR-33) has to cover all seven. **Resolution status is implemented**: the drafter returns it together with the comment (voice = the routed assignee, neutral when none), the pipeline stores it in `TriageSuggestion.ResolutionStatus`, `TriageResult.Resolution` emits it. The training statuses carry no signal (measured, [score-completeness](features/score-completeness/README.md)), so the prompt makes the model decide from the ticket's own text and never from similar tickets' statuses. The `SuggestionValidator` checks all seven fields (slice 4), see the validation table in the [triage-pipeline README](features/triage-pipeline/README.md).
 
 | Topic | Rule |
 |---|---|
-| **No self-retrieval** | `ISimilarTicketSource.FindSimilarAsync(ticket, top, ct)` receives the ticket under analysis and excludes it from the kNN result. This matters when a challenge ticket also appears in `training.json`, and for tickets that are re-analysed. |
+| **No self-retrieval** | `ISimilarTicketSource.FindSimilarAsync(ticket, top, ct)` receives the ticket under analysis and excludes it from the kNN result. This matters when a challenge ticket also appears in the training file, and for tickets that are re-analysed. |
 | **Language** | The language is detected once per ticket. The drafted resolution and comment use that language, and the validator checks against it. Service, team and enum names stay in the fixed English vocabulary of the catalog. |
 | **Multiple services** | Open: it is not yet confirmed that a ticket can have more than one service (requirements §7 no. 5). The field is a list in the export, so the model keeps a list. Urgency, impact and priority are assessed once per ticket. Until the data is checked, routing uses the first service the classifier lists, and all listed services are shown as affected. If several services do occur and map to different teams, a proper rule is needed. The rule "service with the highest ticket priority" was considered and dropped for now, because it needs urgency and impact per service. |
 | **Cold start and ties** | With few or no similar tickets, or a tie in the majority vote, the suggestion is still produced (fallback values where nothing better exists) and the analyst decides. No flag and no further tie-break logic for now. |
@@ -275,7 +276,7 @@ If the ticket changed in the meantime (another analyst decided, or the worker re
 
 ```mermaid
 flowchart LR
-    c[/challenge.json/] --> B1["Batch: ITicketIngestor<br/>(status New, challenge marker)"]
+    c[/challenge file/] --> B1["Batch: ITicketIngestor<br/>(status New, challenge marker)"]
     B1 --> D[(SQLite)]
     D --> W["AnalysisWorker (Web)<br/>ITriagePipeline"]
     W --> D

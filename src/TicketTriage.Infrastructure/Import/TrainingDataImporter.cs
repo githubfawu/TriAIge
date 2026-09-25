@@ -13,7 +13,7 @@ public sealed class TrainingDataOptions
     public const string SectionName = "TrainingData";
 
     /// <summary>Path to the training JSON file; relative paths are resolved against the current directory.</summary>
-    public string Path { get; set; } = "../../data/training.json";
+    public string Path { get; set; } = "../../data/jira_first_20000_requested_fields_synthetic.json";
 }
 
 /// <summary>Imports the training tickets from <c>data/</c> into SQLite. Idempotent: skips if already imported.</summary>
@@ -50,8 +50,7 @@ public sealed class TrainingDataImporter(
             return 0;
         }
 
-        // TODO: implement - verify the file shape (array vs. wrapper object), stream large files,
-        // normalize list fields and insert in batches.
+        // The real export is a plain JSON array of records without "Issue key"; DB tickets are keyed DB-{Id}.
         await using var stream = File.OpenRead(path);
         var tickets = await JsonSerializer.DeserializeAsync<List<Ticket>>(stream, JsonOptions, cancellationToken) ?? [];
 
@@ -81,6 +80,8 @@ public sealed class TrainingDataImporter(
             Comments = [.. ticket.Comments.Select(text => new CommentEntity { CommentText = Truncate(text, 500)! })],
         });
 
+        // 20k tickets plus comments: skip per-entity change detection during the bulk insert.
+        db.ChangeTracker.AutoDetectChangesEnabled = false;
         db.Tickets.AddRange(entities);
         await db.SaveChangesAsync(cancellationToken);
 

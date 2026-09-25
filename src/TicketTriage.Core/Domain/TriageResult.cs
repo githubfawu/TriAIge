@@ -2,13 +2,13 @@ using System.Text.Json.Serialization;
 
 namespace TicketTriage.Core.Domain;
 
-/// <summary>One entry of the batch output file that is submitted for scoring.</summary>
-/// <remarks>TODO: align field set and names with the official scoring format.</remarks>
+/// <summary>
+/// The predicted fields of one scored record. It carries no key: the batch output mirrors the input record
+/// and overwrites exactly these properties, so <c>Issue key</c> is never invented.
+/// </summary>
+/// <remarks>Field names and vocabulary are unconfirmed by the organizers (requirements §7 no. 2); change them here only.</remarks>
 public sealed record TriageResult
 {
-    [JsonPropertyName("Issue key")]
-    public required string TicketKey { get; init; }
-
     [JsonPropertyName("Work type")]
     public required WorkType WorkType { get; init; }
 
@@ -24,17 +24,31 @@ public sealed record TriageResult
     [JsonPropertyName("Priority")]
     public required Priority Priority { get; init; }
 
+    /// <summary>Jira vocabulary, see <see cref="JiraVocabulary"/>.</summary>
+    [JsonPropertyName("Urgency")]
+    public required string Urgency { get; init; }
+
+    /// <summary>Jira vocabulary, see <see cref="JiraVocabulary"/>.</summary>
+    [JsonPropertyName("Impact")]
+    public required string Impact { get; init; }
+
+    /// <summary>Resolution status in the export vocabulary (done, cancelled, clarification, cannot reproduce).</summary>
+    [JsonPropertyName("Resolution")]
+    public ResolutionStatus? Resolution { get; init; }
+
     [JsonPropertyName("All Comments")]
     public IReadOnlyList<string> Comments { get; init; } = [];
 
     public static TriageResult From(TriageSuggestion suggestion) => new()
     {
-        TicketKey = suggestion.TicketKey,
         WorkType = suggestion.WorkType,
         AffectedServices = suggestion.AffectedServices,
         ServiceTeams = suggestion.ServiceTeams,
         Assignee = suggestion.Assignee,
         Priority = suggestion.Priority,
+        Urgency = JiraVocabulary.ToJira(suggestion.Urgency),
+        Impact = JiraVocabulary.ToJira(suggestion.Impact),
+        Resolution = suggestion.ResolutionStatus,
         Comments = !string.IsNullOrWhiteSpace(suggestion.DraftComment) ? [suggestion.DraftComment] : [],
     };
 }

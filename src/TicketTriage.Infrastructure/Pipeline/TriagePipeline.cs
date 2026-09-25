@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
+using TicketTriage.Infrastructure.Routing;
 
 namespace TicketTriage.Infrastructure.Pipeline;
 
@@ -12,6 +13,7 @@ internal sealed class TriagePipeline(
     ISimilarTicketSource similarSource,
     ITicketClassifier classifier,
     IRoutingResolver routingResolver,
+    IRoutingStatisticsSource statisticsSource,
     IResolutionDrafter drafter,
     IOptions<TriageOptions> options,
     ITriageFailureStore failureStore,
@@ -64,7 +66,7 @@ internal sealed class TriagePipeline(
                 var routing = await routingResolver.ResolveAsync(normalized, classification, similar, token);
 
                 step = "Draft";
-                var draft = await drafter.DraftAsync(normalized, classification, similar, token);
+                var draft = await drafter.DraftAsync(normalized, classification, routing, similar, token);
 
                 step = "Validate";
                 var suggestion = new TriageSuggestion
@@ -76,10 +78,11 @@ internal sealed class TriagePipeline(
                     Assignee = routing.Assignee,
                     Urgency = classification.Urgency,
                     Impact = classification.Impact,
-                    DraftComment = draft,
+                    ResolutionStatus = draft.Status,
+                    DraftComment = draft.Comment,
                     SimilarTicketKeys = [.. similar.Select(s => s.Ticket.Key)],
                 };
-                SuggestionValidator.Validate(suggestion);
+                SuggestionValidator.Validate(suggestion, await statisticsSource.GetAsync(token));
 
                 await ResetRetriesAsync(ticket, outerToken);
                 return suggestion;
@@ -110,13 +113,11 @@ internal sealed class TriagePipeline(
                     logger.LogWarning(
                         "Triage of {TicketKey} failed after attempt {Attempt} ({Reason}); using fallback",
                         ticket.Key, attempt, reason);
-                    return await FallbackSuggestionFactory.CreateAsync(
+                    return FallbackSuggestionFactory.Create(
                         normalized ?? ticket,
                         similar ?? [],
-                        routingResolver,
-                        TimeSpan.FromSeconds(settings.TicketTimeoutSeconds),
-                        logger,
-                        outerToken);
+                        await LoadStatisticsForFallbackAsync(ticket, settings, outerToken),
+                        logger);
                 }
 
                 if (settings.RetryDelayMilliseconds > 0)
@@ -124,6 +125,26 @@ internal sealed class TriagePipeline(
                     await Task.Delay(settings.RetryDelayMilliseconds, outerToken);
                 }
             }
+        }
+    }
+
+    // A statistics failure must not break the fallback: it then carries no routing, which the validator treats as consistent.
+    private async Task<RoutingStatistics> LoadStatisticsForFallbackAsync(Ticket ticket, TriageOptions settings, CancellationToken outerToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(outerToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(settings.TicketTimeoutSeconds));
+        try
+        {
+            return await statisticsSource.GetAsync(cts.Token);
+        }
+        catch (OperationCanceledException) when (outerToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Fallback routing statistics unavailable for {TicketKey}: {ExceptionType}", ticket.Key, ex.GetType().FullName);
+            return RoutingStatistics.Empty;
         }
     }
 

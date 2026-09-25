@@ -174,6 +174,7 @@ public sealed class DbSimilarTicketSourceTests : IAsyncLifetime
             _source,
             new FakeClassifier(log),
             new FakeRouter(log),
+            new FakeRoutingStatisticsSource(),
             new FakeDrafter(log),
             Options.Create(new TriageOptions { SimilarTicketCount = 2 }),
             new RecordingFailureStore(),

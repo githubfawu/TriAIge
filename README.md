@@ -7,9 +7,9 @@ It classifies each ticket (work type, affected service, service team, assignee),
 the suggestion. Final scoring runs in batch mode over 20 challenge tickets (JSON in → JSON out).
 
 > **Status: work in progress.** Implemented: priority matrix, training import, the triage pipeline (retry, timeout, validation,
-> fallback, failure log), similar-ticket retrieval (in-memory TF-IDF), LLM classifier and resolution drafter, LLM provider switch.
-> Still stubs / planned: routing statistics (team + assignee), embeddings and hybrid retrieval, real `ServiceCatalog` names,
-> ticket ingest, analysis worker, review persistence (HITL) and resolution status in the batch output. `BatchRunner` runs end to end via a direct, transitional pipeline call (target: ingest → worker → export from the DB, [ADR-0002](docs/adr/0002-background-analysis-worker.md); [docs/features/batch-runner](docs/features/batch-runner/README.md)).
+> fallback, failure log), similar-ticket retrieval (in-memory TF-IDF), LLM classifier and resolution drafter, routing statistics (team + assignee), real `ServiceCatalog` names, LLM provider switch.
+> Still stubs / planned: embeddings and hybrid retrieval,
+> ticket ingest, analysis worker, review persistence (HITL). The resolution status is predicted by the drafter and written to the batch output. `BatchRunner` runs end to end via a direct, transitional pipeline call (target: ingest → worker → export from the DB, [ADR-0002](docs/adr/0002-background-analysis-worker.md); [docs/features/batch-runner](docs/features/batch-runner/README.md)).
 > Per-component status: [docs/architecture.md](docs/architecture.md).
 
 ## Prerequisites
@@ -94,13 +94,13 @@ dotnet run --project src/TicketTriage.AppHost  # Aspire dashboard: https://local
   - `/review/{id}` shows a suggestion next to editable fields
   - `/health` returns every check as detailed JSON
   - `/alive` runs liveness checks only
-- **batch**: has an explicit start, so launch it from the dashboard (▶). It reads `data/challenge.json` and writes `data/result.json`.
+- **batch**: has an explicit start, so launch it from the dashboard (▶). It reads `data/jira_hackathon_blind_eval_challenge_20260923083915-1141.json` (envelope with a `records` array or a plain array; records may lack `Issue key`) and writes a mirror of it `data/result.json`.
 - **triage-db**: the SQLite file `data/triage.db`. In Development, the schema is created (`EnsureCreatedAsync`, no migrations) and the training import runs on startup.
 
 Batch without Aspire:
 
 ```bash
-dotnet run --project src/TicketTriage.Batch -- --input ../../data/challenge.json --output ../../data/result.json
+dotnet run --project src/TicketTriage.Batch -- --input ../../data/jira_hackathon_blind_eval_challenge_20260923083915-1141.json --output ../../data/result.json
 ```
 
 (Relative paths resolve against `src/TicketTriage.Batch`.)
@@ -127,15 +127,15 @@ src/
                                 health endpoints + JSON writer, resilience, service discovery
   TicketTriage.Core/            Domain: records, enums, PriorityMatrix, ServiceCatalog, interfaces (no dependencies)
   TicketTriage.Infrastructure/  EF Core SQLite (TriageDbContext, EnsureCreated), TrainingDataImporter, TriagePipeline,
-                                similar-ticket retrieval (TF-IDF), DbTicketSource, routing stub
+                                similar-ticket retrieval (TF-IDF), DbTicketSource, routing statistics
   TicketTriage.Agents/          IChatClient per provider, TriageAgent (Agent Framework), LLM classifier + drafter, AgentFrameworkHealthCheck
   TicketTriage.Web/             Blazor Web App (Interactive Server) + MudBlazor, HITL pages
-  TicketTriage.Batch/           Console app (Generic Host): --input challenge.json --output result.json
+  TicketTriage.Batch/           Console app (Generic Host): --input <challenge file> --output result.json
 tests/
   TicketTriage.Core.Tests/      xUnit v3 + FluentAssertions: all 25 priority combinations, service catalog
   TicketTriage.Infrastructure.Tests/  pipeline, retry / failure store, retrieval, sources, importer (SQLite in-memory)
   TicketTriage.Agents.Tests/    classifier + drafter with a fake IChatClient; live smoke tests are opt-in (`Category=Integration`)
-data/                           gitignored: training.json, challenge.json, result.json, triage.db
+data/                           gitignored: the training array (jira_first_20000_requested_fields_synthetic.json), the challenge envelope (jira_hackathon_blind_eval_challenge_20260923083915-1141.json), result.json, triage.db
 ```
 
 Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
@@ -184,8 +184,6 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
   `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are not referenced.
 - **FluentAssertions licensing:** v8 is under the Xceed license, which requires a paid license for commercial use.
   If that's a concern, [AwesomeAssertions](https://www.nuget.org/packages/AwesomeAssertions) is a drop-in, Apache-2.0 fork.
-- **ServiceCatalog:** the 20 service names in Core are placeholders (`TODO Critical Service 01` …); the 14/6 split is correct.
-  The real names are in [docs/requirements.md](docs/requirements.md) §6 and in the DB `AffectedBusinessOrITServices` seed. Likewise, check the `Ticket` JSON property names against the real data files.
 
 ## Documentation
 

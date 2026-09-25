@@ -6,10 +6,11 @@ namespace TicketTriage.Infrastructure.Stubs;
 internal sealed class StubResolutionDrafter : IResolutionDrafter
 {
     // TODO: implement - replace with an LLM-backed drafter in TicketTriage.Agents.
-    public Task<string> DraftAsync(
+    public Task<ResolutionDraft> DraftAsync(
         Ticket ticket,
         TicketClassification classification,
+        RoutingDecision routing,
         IReadOnlyList<SimilarTicket> similarTickets,
         CancellationToken cancellationToken) =>
-        Task.FromResult("TODO: draft resolution comment.");
+        Task.FromResult(new ResolutionDraft(ResolutionStatus.Done, "TODO: draft resolution comment."));
 }

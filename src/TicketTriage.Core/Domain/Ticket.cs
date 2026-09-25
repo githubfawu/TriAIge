@@ -7,15 +7,19 @@ namespace TicketTriage.Core.Domain;
 /// Classification fields are raw strings because the source data is not guaranteed to be clean;
 /// the typed values live on <see cref="TriageSuggestion"/>.
 /// </summary>
-/// <remarks>TODO: verify every JSON property name against the real input files once available.</remarks>
+/// <remarks>
+/// Property names verified against the real training and challenge exports. Those files carry no
+/// <c>Issue key</c> and the export's <c>Created date</c> is not ISO, so <see cref="Created"/> stays unmapped.
+/// </remarks>
 public sealed record Ticket
 {
     /// <summary>Database id; not part of the JSON files.</summary>
     [JsonIgnore]
     public int? Id { get; init; }
 
+    /// <summary>Jira key if the record has one, else blank; the batch reader then assigns a positional identity.</summary>
     [JsonPropertyName("Issue key")]
-    public required string Key { get; init; }
+    public string Key { get; init; } = "";
 
     [JsonPropertyName("Summary")]
     public required string Summary { get; init; }

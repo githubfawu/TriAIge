@@ -27,9 +27,9 @@ flowchart LR
 | Options | `--input` / `--output` map to `Batch:Input` / `Batch:Output`; both validated (missing → exit 2) |
 | `Prepare()` preflight | Resolves full paths, rejects input == output (`BatchInputException`), creates the output directory and probes writability with a temp file. Runs before any DB work or LLM call, so a bad output path fails fast (exit 1) |
 | `beforeRunAsync` | Optional callback of `BatchCommand.ExecuteAsync`. `Program` passes `InitializeTriageDatabaseAsync` in Development only, and only after `Prepare()` succeeded: a missing `--input` exits 2 without touching the DB |
-| Read input | JSON array of `Ticket`; missing file, bad JSON, empty array, null array or null element → `BatchInputException`. Messages carry position and path only, never input fragments |
+| Read input | `ChallengeDocument.ReadAsync`: a JSON array of records or an envelope object with a `records` array (the real export). Records without `Issue key` get the internal key `#n` (1-based). Missing file, bad JSON, missing/non-array/empty `records`, non-object or null record, unusable record → `BatchInputException`. Messages carry index, position and path only, never input fragments |
 | Pipeline | Sequential, one suggestion per ticket, in input order; result count must equal ticket count |
-| Output | Indented JSON array of `TriageResult`, input order. Duplicate issue keys are kept and logged as a warning (key only) |
+| Output | The input mirrored: each record cloned in input order with the predicted fields (`TriageResult`: work type, services, teams, assignee, priority, urgency, impact, resolution, all comments) overwritten; all other fields and the envelope metadata are kept. Envelope in, envelope out; array in, array out. No `Issue key` is ever added. `Urgency`/`Impact` use the Jira scale (`JiraVocabulary`). Duplicate real keys are logged as a warning (key only) |
 | Write | Temp file next to the target, then `File.Move(overwrite)`. Failure or cancellation leaves an existing `result.json` untouched |
 
 ### What is written
@@ -39,7 +39,7 @@ flowchart LR
 | `result.json` | The only artefact `BatchRunner` writes |
 | Database on success | Nothing. Suggestions are not persisted |
 | Database on failed attempts | `TriageFailure` rows from the pipeline's failure store (`TicketId` is null for challenge tickets) |
-| Database at Development startup | Schema created (`EnsureCreatedAsync`) and `training.json` imported once (idempotent) |
+| Database at Development startup | Schema created (`EnsureCreatedAsync`) and the training file imported once (idempotent) |
 
 ### Fallback rule
 
@@ -81,7 +81,7 @@ Until then the current behaviour applies. Nothing of this is implemented.
 ## Running it
 
 ```bash
-dotnet run --project src/TicketTriage.Batch -- --input ../../data/challenge.json --output ../../data/result.json
+dotnet run --project src/TicketTriage.Batch -- --input ../../data/jira_hackathon_blind_eval_challenge_20260923083915-1141.json --output ../../data/result.json
 ```
 
 ```powershell
@@ -89,7 +89,7 @@ $env:Triage__StopSystemOnFailure="false"   # scoring runs
 ```
 
 - Relative paths resolve against `src/TicketTriage.Batch`, hence `../../data/...`. The AppHost `batch` resource (explicit start) passes its own paths.
-- Needs `data/training.json` imported into `triage.db` (Development startup does it; retrieval depends on it). After schema changes delete `data/triage.db*`.
+- Needs the training array (`data/jira_first_20000_requested_fields_synthetic.json`) imported into `triage.db` (Development startup does it; retrieval depends on it). Delete `data/triage.db*` once before the first real import (it skips when any ticket exists) and after schema changes: `data/triage.db*`.
 - A missing LLM provider does not crash the run; every ticket then uses the fallback.
 - Dashboard: traces of the `batch` resource show one pipeline run per ticket, including retries and LLM calls.
 
@@ -105,8 +105,8 @@ $env:Triage__StopSystemOnFailure="false"   # scoring runs
 
 ## Known limitations
 
-- Routing is still a stub (team and assignee are placeholders), which costs score. Resolution status is not produced (FR-16 partial).
-- The real `challenge.json` shape is unverified in this checkout (plan risk R1).
+- Team and assignee come from routing statistics (assignee is near-random in the data); the resolution status comes from the LLM drafter (lowercase vocabulary, similar-ticket majority as fallback) and has no learnable signal in the training data, so expect chance-level accuracy on it.
+- The output schema (envelope mirrored, Jira vocabulary for urgency/impact, `All Comments` = drafted comment) is not confirmed by the organizers; only `TriageResult`, `JiraVocabulary` and `ChallengeDocument.ToOutput` would change. `Resolution` is written from `TriageSuggestion.ResolutionStatus` (`done`, `cancelled`, `clarification`, `cannot reproduce`), also for fallback records.
 - No input size cap; the input is a trusted operator file.
 - `--output` is operator-controlled with no directory restriction. The temp file uses `File.Create`, not `CreateNew`. Acceptable for a local CLI.
 - Fallback detection relies on the blank-`DraftComment` contract with `SuggestionValidator` and `FallbackSuggestionFactory`, pinned by a contract test. An explicit `TriageSuggestion.IsFallback` flag would be cleaner.

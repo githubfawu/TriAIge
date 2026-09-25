@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
@@ -13,7 +14,6 @@ public sealed class BatchRunner(
     TimeProvider timeProvider,
     ILogger<BatchRunner> logger)
 {
-    private static readonly JsonSerializerOptions InputOptions = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions OutputOptions = new() { WriteIndented = true };
 
     public async Task<BatchSummary> RunAsync(CancellationToken cancellationToken)
@@ -22,11 +22,12 @@ public sealed class BatchRunner(
         var (input, output) = Prepare();
 
         logger.LogInformation("Reading challenge tickets from {Input}.", input);
-        var tickets = await ReadTicketsAsync(input, cancellationToken);
+        var document = await ChallengeDocument.ReadAsync(input, cancellationToken);
+        var tickets = document.Tickets;
 
-        foreach (var duplicate in tickets.GroupBy(t => t.Key).Where(g => g.Count() > 1))
+        foreach (var duplicate in document.DuplicateKeys)
         {
-            logger.LogWarning("Duplicate issue key {Key} occurs {Count} times in the input.", duplicate.Key, duplicate.Count());
+            logger.LogWarning("Duplicate issue key {Key} occurs more than once in the input.", duplicate);
         }
 
         var results = new List<TriageResult>(tickets.Count);
@@ -48,7 +49,7 @@ public sealed class BatchRunner(
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        await WriteAtomicallyAsync(output, results, cancellationToken);
+        await WriteAtomicallyAsync(output, document.ToOutput(results), cancellationToken);
 
         var duration = timeProvider.GetElapsedTime(started);
         logger.LogInformation(
@@ -109,46 +110,6 @@ public sealed class BatchRunner(
         }
     }
 
-    // Everything is validated here, before the pipeline or any output IO. Messages use position and path only:
-    // JsonException.Message can echo fragments of the (personal) input.
-    private static async Task<List<Ticket>> ReadTicketsAsync(string input, CancellationToken cancellationToken)
-    {
-        List<Ticket>? tickets;
-        try
-        {
-            await using var stream = File.OpenRead(input);
-            tickets = await JsonSerializer.DeserializeAsync<List<Ticket>>(stream, InputOptions, cancellationToken);
-        }
-        catch (JsonException ex)
-        {
-            throw new BatchInputException(
-                $"Input file '{input}' is not a valid ticket array (line {ex.LineNumber + 1}, position {ex.BytePositionInLine + 1}, path {ex.Path}).",
-                ex);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            throw new BatchInputException($"Cannot read input file '{input}' ({ex.GetType().Name}).", ex);
-        }
-
-        if (tickets is null)
-        {
-            throw new BatchInputException($"Input file '{input}' contains null instead of a JSON array of tickets.");
-        }
-
-        if (tickets.Count == 0)
-        {
-            throw new BatchInputException($"Input file '{input}' contains an empty ticket array.");
-        }
-
-        var nullIndex = tickets.IndexOf(null!);
-        if (nullIndex >= 0)
-        {
-            throw new BatchInputException($"Input file '{input}' contains null instead of a ticket at index {nullIndex}.");
-        }
-
-        return tickets;
-    }
-
     // The pipeline has no fallback flag, but its validator rejects a blank DraftComment on every successful
     // path while the fallback factory always leaves it null. TriageResult.From applies the same blank test.
     internal static bool IsFallback(TriageSuggestion suggestion) =>
@@ -157,7 +118,7 @@ public sealed class BatchRunner(
     // The temp file lives next to the target so File.Move is a same-volume rename and never leaves a half-written result.json.
     private static async Task WriteAtomicallyAsync(
         string output,
-        IReadOnlyList<TriageResult> results,
+        JsonNode content,
         CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(output)
@@ -168,7 +129,7 @@ public sealed class BatchRunner(
         {
             await using (var stream = File.Create(temp))
             {
-                await JsonSerializer.SerializeAsync(stream, results, OutputOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, content, OutputOptions, cancellationToken);
             }
 
             File.Move(temp, output, overwrite: true);

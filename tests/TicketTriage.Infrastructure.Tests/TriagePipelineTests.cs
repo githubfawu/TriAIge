@@ -9,17 +9,20 @@ public class TriagePipelineTests
 {
     private readonly CallLog _log = new();
     private readonly RecordingSimilarSource _similar;
+    private readonly FakeDrafter _drafter;
     private readonly TriagePipeline _pipeline;
 
     public TriagePipelineTests()
     {
         _similar = new RecordingSimilarSource(_log);
+        _drafter = new FakeDrafter(_log);
         _pipeline = new TriagePipeline(
             new TicketNormalizer(NullLogger<TicketNormalizer>.Instance),
             _similar,
             new FakeClassifier(_log),
             new FakeRouter(_log),
-            new FakeDrafter(_log),
+            new FakeRoutingStatisticsSource(),
+            _drafter,
             Options.Create(new TriageOptions { SimilarTicketCount = 7 }),
             new RecordingFailureStore(),
             NullLogger<TriagePipeline>.Instance);
@@ -36,7 +39,17 @@ public class TriagePipelineTests
 
         result.Select(s => s.TicketKey).Should().Equal("T-3", "T-1", "T-2");
         result.Should().OnlyContain(s => s.DraftComment == "draft text" && s.SimilarTicketKeys.SequenceEqual(new[] { "OLD-1" }));
-        result.Should().OnlyContain(s => s.ResolutionStatus == null);
+        result.Should().OnlyContain(s => s.ResolutionStatus == ResolutionStatus.Clarification);
+    }
+
+    [Fact]
+    public async Task Triage_DrafterReceivesRoutingDecision_PerFR6()
+    {
+        await _pipeline.TriageAsync(Tickets.Make("T-1"), TestContext.Current.CancellationToken);
+
+        var routing = _drafter.Routings.Should().ContainSingle().Which;
+        routing.ServiceTeams.Should().Equal("Team A");
+        routing.Assignee.Should().Be("alice");
     }
 
     [Fact]
@@ -91,6 +104,7 @@ public class TriagePipelineTests
             new ThrowingSimilarSource(),
             new FakeClassifier(_log),
             new FakeRouter(_log),
+            new FakeRoutingStatisticsSource(),
             new FakeDrafter(_log),
             Options.Create(new TriageOptions { RetryCount = 2, RetryDelayMilliseconds = 0 }),
             new RecordingFailureStore(),
@@ -99,7 +113,7 @@ public class TriagePipelineTests
         var suggestion = await pipeline.TriageAsync(Tickets.Make("T-1"), TestContext.Current.CancellationToken);
 
         suggestion.DraftComment.Should().BeNull();
-        suggestion.ServiceTeams.Should().Equal("Team A");
+        suggestion.ServiceTeams.Should().BeEmpty("no similar tickets means no service to route by");
     }
 
     private sealed class ThrowingSimilarSource : TicketTriage.Core.Abstractions.ISimilarTicketSource

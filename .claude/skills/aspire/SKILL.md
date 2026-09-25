@@ -12,8 +12,8 @@ AppHost: `src/TicketTriage.AppHost` (`Aspire.AppHost.Sdk/13.x`, `UserSecretsId: 
 | Resource | Wiring |
 |---|---|
 | `triage-db` | `AddSqlite("triage-db", <repo>/data, "triage.db")` |
-| `web` | `WithReference(sqlite).WaitFor(sqlite)`, `TrainingData__Path`, `WithLlmConfiguration(llm)`, `WithHttpHealthCheck("/health")` |
-| `batch` | same DB + LLM wiring, `--input data/challenge.json --output data/result.json`, `WithExplicitStart()` |
+| `web` | `WithReference(sqlite).WaitFor(sqlite)`, `TrainingData__Path` (from `Data:TrainingFile`, a plain file name inside `data/`), `WithLlmConfiguration(llm)`, `WithHttpHealthCheck("/health")` |
+| `batch` | same DB + LLM wiring, `--input data/<Data:ChallengeFile> --output data/result.json`, `WithExplicitStart()` |
 
 LLM parameters are created with `AddOptionalParameter(name, fallback, secret)` (missing → fallback/empty, app still starts) and mapped to `Llm__*` env vars by `WithLlmConfiguration`. Add new settings the same way instead of new ad-hoc env vars.
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using TicketTriage.Agents.Classification;
 using TicketTriage.Agents.Drafting;
 using TicketTriage.Agents.Llm;
+using TicketTriage.Core.Domain;
 
 namespace TicketTriage.Agents.Tests;
 
@@ -31,7 +32,7 @@ public class LiveSmokeTests
 
         var watch = Stopwatch.StartNew();
         var classification = await classifier.ClassifyAsync(ticket, [], TestContext.Current.CancellationToken);
-        var draft = await drafter.DraftWithStatusAsync(ticket, classification, [], TestContext.Current.CancellationToken);
+        var draft = await drafter.DraftAsync(ticket, classification, new RoutingDecision([], null), [], TestContext.Current.CancellationToken);
         watch.Stop();
 
         classification.AffectedServices.Should().NotBeEmpty();

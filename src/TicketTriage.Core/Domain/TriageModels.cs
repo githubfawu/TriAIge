@@ -10,5 +10,8 @@ public sealed record TicketClassification(
     Urgency Urgency,
     Impact Impact);
 
+/// <summary>Drafter output: the resolution status and the comment for the analyst.</summary>
+public sealed record ResolutionDraft(ResolutionStatus Status, string Comment);
+
 /// <summary>Routing target for a ticket.</summary>
 public sealed record RoutingDecision(IReadOnlyList<string> ServiceTeams, string? Assignee);

@@ -19,8 +19,8 @@ Agent Framework (MAF) is the successor of Semantic Kernel + AutoGen. Packages (v
 | `Agents/TriageAgent.cs` | `Name` + `Instructions` (system prompt) |
 | `Core/Abstractions/TriageAbstractions.cs` | Pipeline ports: `ITicketSource`, `ISimilarTicketSource`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriageFailureStore`, `ITriagePipeline` |
 | `Infrastructure/Pipeline/*` | Real `ITriagePipeline` (stream, per-attempt timeout, retry, `SuggestionValidator`, fallback). LLM-backed ports must throw on failure or return invalid output so the pipeline counts a failed attempt; don't swallow errors inside them. Not to be changed from Agents. |
-| `Agents/Classification/*`, `Agents/Drafting/*`, `Agents/Prompting/*`, `Agents/Services/*` | Real `LlmTicketClassifier` and `LlmResolutionDrafter` (+ Agents-side `IResolutionDraftAgent` with resolution status), versioned prompts, `IServiceCatalogProvider`. Feature docs: `docs/features/triage-agent/` |
-| `Infrastructure/Stubs/*` | Remaining stubs registered with `TryAdd*` (today only `StubRoutingResolver`) — replace with real ones |
+| `Agents/Classification/*`, `Agents/Drafting/*`, `Agents/Prompting/*`, `Agents/Services/*` | Real `LlmTicketClassifier` and `LlmResolutionDrafter` (the drafter returns Core `ResolutionDraft(Status, Comment)`), versioned prompts, `IServiceCatalogProvider`. Feature docs: `docs/features/triage-agent/` |
+| `Infrastructure/Stubs/*` | Placeholder implementations registered with `TryAdd*`; currently none remain (routing is `StatisticsRoutingResolver`). Add one there only for a new port. |
 
 Pipeline: **retrieve similar → classify → route → prioritize → draft**. Consume the agent via `[FromKeyedServices(TriageAgent.Name)] AIAgent agent`.
 
@@ -178,4 +178,4 @@ sealed class FakeChatClient(params string[] replies) : IChatClient
 }
 ```
 
-Feed it JSON matching the DTO to test mapping, validation and fallbacks; inspect `Calls` to assert ticket text is in the user message, not the system prompt. Measure prompt quality separately: accuracy per field (work type, urgency, impact, team) on a held-out slice of `training.json` — that's the number that matters for scoring.
+Feed it JSON matching the DTO to test mapping, validation and fallbacks; inspect `Calls` to assert ticket text is in the user message, not the system prompt. Measure prompt quality separately: accuracy per field (work type, urgency, impact, team) on a held-out slice of the training file — that's the number that matters for scoring.

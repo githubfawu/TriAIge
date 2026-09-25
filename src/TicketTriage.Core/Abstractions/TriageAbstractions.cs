@@ -34,12 +34,13 @@ public interface IRoutingResolver
         CancellationToken cancellationToken);
 }
 
-/// <summary>Drafts a resolution comment for the analyst.</summary>
+/// <summary>Drafts the resolution status and comment for the analyst, in the voice of the routed assignee.</summary>
 public interface IResolutionDrafter
 {
-    Task<string> DraftAsync(
+    Task<ResolutionDraft> DraftAsync(
         Ticket ticket,
         TicketClassification classification,
+        RoutingDecision routing,
         IReadOnlyList<SimilarTicket> similarTickets,
         CancellationToken cancellationToken);
 }

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Infrastructure.Pipeline;
 using TicketTriage.Infrastructure.Retrieval;
+using TicketTriage.Infrastructure.Routing;
 using TicketTriage.Infrastructure.Sources;
 
 namespace TicketTriage.Infrastructure.Tests;
@@ -41,6 +42,16 @@ public class RegistrationTests
         using var provider = Build();
 
         provider.GetRequiredService<ITicketSource>().Should().BeOfType<DbTicketSource>();
+    }
+
+    [Fact]
+    public void RoutingResolver_ResolvesAsStatisticsRoutingResolver_PerAC3()
+    {
+        using var provider = Build();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IRoutingResolver>().Should().BeOfType<StatisticsRoutingResolver>();
+        provider.GetRequiredService<IRoutingStatisticsSource>().Should().BeOfType<RoutingStatisticsProvider>();
     }
 
     [Fact]

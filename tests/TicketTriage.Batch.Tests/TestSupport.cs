@@ -39,6 +39,7 @@ internal sealed class FakeTriagePipeline(
         Assignee = "Jane Doe",
         Urgency = Urgency.High,
         Impact = Impact.NoImpact,
+        ResolutionStatus = (ResolutionStatus)(ticket.Summary.Length % 4),
         DraftComment = _fallbackKeys.Contains(ticket.Key) ? null : "Draft.",
     };
 }
@@ -52,6 +53,36 @@ internal sealed class TempDir : IDisposable
     public string Combine(string name) => System.IO.Path.Combine(Path, name);
 
     public void Dispose() => Directory.Delete(Path, recursive: true);
+}
+
+/// <summary>Cycles through all 25 (urgency, impact) pairs in input order.</summary>
+internal sealed class CyclingPipeline : ITriagePipeline
+{
+    public Task<TriageSuggestion> TriageAsync(Ticket ticket, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
+    public async IAsyncEnumerable<TriageSuggestion> TriageAsync(
+        IAsyncEnumerable<Ticket> tickets,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var i = 0;
+        await foreach (var ticket in tickets.WithCancellation(cancellationToken))
+        {
+            yield return new TriageSuggestion
+            {
+                TicketKey = ticket.Key,
+                WorkType = WorkType.Incident,
+                AffectedServices = ["Service A"],
+                ServiceTeams = ["Team A"],
+                Assignee = "Jane Doe",
+                Urgency = (Urgency)(i / 5 % 5),
+                Impact = (Impact)(i % 5),
+                ResolutionStatus = (ResolutionStatus)(i % 4),
+                DraftComment = "Draft.",
+            };
+            i++;
+        }
+    }
 }
 
 /// <summary>Yields the given number of results (or one extra-cancel hook) regardless of the input size.</summary>
@@ -81,6 +112,7 @@ internal sealed class ScriptedPipeline(int resultCount, Func<CancellationTokenSo
                 Assignee = "x",
                 Urgency = Urgency.Low,
                 Impact = Impact.Minor,
+                ResolutionStatus = ResolutionStatus.Done,
                 DraftComment = "Draft.",
             };
         }

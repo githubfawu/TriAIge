@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
+using TicketTriage.Infrastructure.Routing;
 
 namespace TicketTriage.Infrastructure.Pipeline;
 
@@ -28,31 +28,16 @@ internal static class FallbackSuggestionFactory
         return new TicketClassification(workType, service is null ? [] : [service], Urgency.Medium, Impact.Moderate);
     }
 
-    public static async Task<TriageSuggestion> CreateAsync(
+    // Routing comes straight from the statistics (not the resolver) so the fallback always agrees with the validator's routing rules.
+    public static TriageSuggestion Create(
         Ticket ticket,
         IReadOnlyList<SimilarTicket> similar,
-        IRoutingResolver router,
-        TimeSpan routingTimeout,
-        ILogger logger,
-        CancellationToken cancellationToken)
+        RoutingStatistics statistics,
+        ILogger logger)
     {
         var classification = Classify(similar);
-        var routing = new RoutingDecision([], null);
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(routingTimeout);
-        try
-        {
-            routing = await router.ResolveAsync(ticket, classification, similar, cts.Token);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Fallback routing failed for {TicketKey}: {ExceptionType}", ticket.Key, ex.GetType().FullName);
-        }
+        var routing = statistics.Resolve(classification.AffectedServices);
+        logger.LogDebug("Fallback for {TicketKey} routed to {TeamCount} team(s)", ticket.Key, routing.ServiceTeams.Count);
 
         return new TriageSuggestion
         {
@@ -64,10 +49,19 @@ internal static class FallbackSuggestionFactory
             Urgency = classification.Urgency,
             Impact = classification.Impact,
             DraftComment = null,
-            ResolutionStatus = null,
+            ResolutionStatus = ResolveStatus(similar),
             SimilarTicketKeys = [.. similar.Select(s => s.Ticket.Key)],
         };
     }
+
+    // Training statuses carry no signal (docs/features/score-completeness); this only keeps the field in the vocabulary.
+    private static ResolutionStatus ResolveStatus(IReadOnlyList<SimilarTicket> similar) =>
+        Ranked(
+            similar
+                .Select(s => (Value: ParseEnum<ResolutionStatus>(s.Ticket.Resolution), s.Score))
+                .Where(x => x.Value is not null)
+                .Select(x => (x.Value!.Value, x.Score)),
+            Comparer<ResolutionStatus>.Default).Cast<ResolutionStatus?>().FirstOrDefault() ?? ResolutionStatus.Done;
 
     // Most frequent value first; ties -> higher summed score, then the comparer's order.
     private static IEnumerable<T> Ranked<T>(IEnumerable<(T Value, double Score)> items, IComparer<T> comparer) =>
@@ -78,7 +72,9 @@ internal static class FallbackSuggestionFactory
             .ThenBy(g => g.Value, comparer)
             .Select(g => g.Value);
 
-    private static WorkType? ParseWorkType(string? raw)
+    private static WorkType? ParseWorkType(string? raw) => ParseEnum<WorkType>(raw);
+
+    private static T? ParseEnum<T>(string? raw) where T : struct, Enum
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -87,7 +83,7 @@ internal static class FallbackSuggestionFactory
 
         try
         {
-            return JsonSerializer.Deserialize<WorkType>(JsonSerializer.Serialize(raw.Trim()));
+            return JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(raw.Trim()));
         }
         catch (JsonException)
         {

@@ -7,6 +7,7 @@ using TicketTriage.Infrastructure.Import;
 using TicketTriage.Infrastructure.Persistence;
 using TicketTriage.Infrastructure.Pipeline;
 using TicketTriage.Infrastructure.Retrieval;
+using TicketTriage.Infrastructure.Routing;
 using TicketTriage.Infrastructure.Sources;
 using TicketTriage.Infrastructure.Stubs;
 
@@ -34,10 +35,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<SimilarTicketIndexProvider>();
         services.TryAddSingleton<ISimilarTicketSource, DbSimilarTicketSource>();
         services.TryAddSingleton<ITicketSource, DbTicketSource>();
+        services.TryAddSingleton<IRoutingStatisticsSource, RoutingStatisticsProvider>();
+        services.TryAddScoped<IRoutingResolver, StatisticsRoutingResolver>();
 
         // TODO: implement - replace the remaining stubs with real implementations (Agents project for LLM-backed ones).
         services.TryAddScoped<ITicketClassifier, StubTicketClassifier>();
-        services.TryAddScoped<IRoutingResolver, StubRoutingResolver>();
         services.TryAddScoped<IResolutionDrafter, StubResolutionDrafter>();
 
         services.AddOptions<TriageOptions>()

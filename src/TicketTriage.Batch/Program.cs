@@ -6,7 +6,7 @@ using TicketTriage.Agents;
 using TicketTriage.Batch;
 using TicketTriage.Infrastructure;
 
-// Usage: TicketTriage.Batch --input <challenge.json> --output <result.json>
+// Usage: TicketTriage.Batch --input <challenge file> --output <result.json>
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Configuration.AddCommandLine(args, new Dictionary<string, string>

@@ -11,9 +11,9 @@ Replaces the stubs `StubTicketClassifier` and `StubResolutionDrafter` with LLM-b
 | Type | Role |
 |---|---|
 | `LlmTicketClassifier` (`ITicketClassifier`) | One structured-output call (`RunAsync<T>`) returns work type, affected services, urgency and impact (`ClassificationDto` → `TicketClassification`). Similar tickets are context, the ticket's own values only a hint. Temperature 0. |
-| `LlmResolutionDrafter` (`IResolutionDrafter` and `IResolutionDraftAgent`) | One call returns resolution status, comment and language (`ResolutionDraft`). The Core port returns only the comment; the status is available through the Agents-side `IResolutionDraftAgent` and is **not yet wired into `TriageSuggestion`**. The comment uses the ticket's language and the voice of the assignee taken from the similar tickets (no persona when there are none). |
+| `LlmResolutionDrafter` (`IResolutionDrafter`) | One structured-output call returns resolution status, language and comment; the Core port returns `ResolutionDraft(Status, Comment)` (language is only logged at Debug). The status is parsed strictly against the lowercase vocabulary (`done`, `cancelled`, `clarification`, `cannot reproduce`; case-insensitive); an unknown status or blank comment throws so the pipeline retries and falls back. The prompt defines the four statuses and tells the model to decide from the ticket's own text and **not** to copy similar tickets' statuses (they carry no signal, measured in [score-completeness](../score-completeness/README.md)). The comment uses the ticket's language and the voice of the routed assignee (`RoutingDecision.Assignee`; neutral voice when null). Similar tickets are rendered with `Resolution status:` plus, for the drafter only, one `Resolution note:` (last comment starting with `Resolution:` after the `<email>: ` prefix; `Resolution recorded:` and `Problem fixed.` templates are skipped). |
 | `IServiceCatalogProvider` | Injected source of valid services and their criticality. Default `CoreServiceCatalogProvider` reads Core's `ServiceCatalog`. |
-| `ClassifierPrompts`, `DraftPrompts` | Versioned prompt constants (`classifier-v1`, `drafter-v1`). |
+| `ClassifierPrompts`, `DraftPrompts` | Versioned prompt constants (`classifier-v1`, `drafter-v2`). |
 | `TicketPromptFormatter`, `EnumNames` | Ticket and similar-ticket formatting for the user message, enum name parsing. |
 
 Rules: ticket text goes only into the user message, never into the instructions. The model never produces the priority (`PriorityMatrix`). Invalid work type, urgency, impact, an unknown service, no service, an empty comment or a failing / cancelled `IChatClient` **throw** (`InvalidOperationException` or the client's exception); there is no repair retry and no fallback inside the agent. The pipeline counts the failure and retries or falls back.
@@ -34,9 +34,9 @@ Resolved since the requirements were written: the importer status (`"Finished"` 
 
 Still open:
 
-- **Resolution status is not implemented** (later cycle): `TriageSuggestion.ResolutionStatus` exists but stays null, `TriageResult` has no field for it, and the validator does not check it. Confidence and reasoning were dropped as not needed (FR-18 removed, `Confidence` deleted from `TriageSuggestion` and `TicketClassification`).
-- `TriageResult` (batch output) has no resolution, urgency or impact field; the output schema is an open question (requirements §7 no. 2).
-- Core `ServiceCatalog` still holds `TODO …` placeholders, so the default catalog rejects every real service. The real names are in `docs/requirements.md` §6 and the DB seed.
+- Resolution status is implemented end to end (drafter, `TriageSuggestion`, validator, `TriageResult.Resolution`); its accuracy is bounded by the lack of signal in the data. Confidence and reasoning were dropped as not needed (FR-18 removed, `Confidence` deleted from `TriageSuggestion` and `TicketClassification`).
+- The output schema is an open question (requirements §7 no. 2).
+- Core `ServiceCatalog` holds the 20 real names (order of `docs/requirements.md` section 6, identical to the DB seed), so the classifier accepts them case-insensitively and returns the canonical spelling.
 - DB `Impact` lookup (`Lowest…Highest`) differs from the Core `Impact` enum (`Major…NoImpact`); the importer translates by rank.
 - DB `ServiceTeams` contains a team named "Affected Business or IT Services".
 - The importer truncates summary, description, assignee and resolution and keeps only the first service and team.

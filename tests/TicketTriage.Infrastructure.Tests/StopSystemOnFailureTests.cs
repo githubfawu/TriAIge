@@ -25,6 +25,7 @@ public class StopSystemOnFailureTests
             new FixedSimilarSource(new SimilarTicket(Tickets.Make("OLD-1") with { WorkType = "Incident", AffectedServices = ["Email"] }, 0.9)),
             classifier,
             new FakeRouter(_log),
+            new FakeRoutingStatisticsSource(),
             new ScriptedDrafter(),
             Options.Create(new TriageOptions { RetryCount = 3, StopSystemOnFailure = stop, RetryDelayMilliseconds = 0 }),
             _store,

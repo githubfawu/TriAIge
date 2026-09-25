@@ -5,7 +5,7 @@ namespace TicketTriage.Batch;
 /// <summary>Maps the outcome of a batch run to an exit code and console output. Never prints ticket text.</summary>
 public static class BatchCommand
 {
-    public const string Usage = "Usage: TicketTriage.Batch --input <challenge.json> --output <result.json>";
+    public const string Usage = "Usage: TicketTriage.Batch --input <challenge file (envelope or array)> --output <result.json>";
 
     public static async Task<int> ExecuteAsync(
         BatchRunner runner,

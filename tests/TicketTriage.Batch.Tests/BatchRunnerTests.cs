@@ -42,6 +42,94 @@ public sealed class BatchRunnerTests : IDisposable
         summary.OutputPath.Should().Be(output);
     }
 
+    private string WriteKeylessEnvelope(int count)
+    {
+        var path = _dir.Combine("challenge.json");
+        var records = Enumerable.Range(1, count).Select(i =>
+            "{\"Work type\":\"Incident\",\"Summary\":\"s" + i + "\",\"Description\":\"d" + i + "\","
+            + "\"Request type\":\"Access Removal\",\"Assignee\":null,\"Service Team(s)\":[],\"Resolution\":null,\"All Comments\":[]}");
+        File.WriteAllText(path, "{\"runId\":\"r-1\",\"actualIssueCount\":" + count + ",\"records\":[" + string.Join(",", records) + "]}");
+        return path;
+    }
+
+    [Fact]
+    public async Task RunAsync_KeylessEnvelope_WritesMirroredEnvelopeInInputOrder_PerAC1()
+    {
+        var output = _dir.Combine("result.json");
+
+        var summary = await CreateRunner(WriteKeylessEnvelope(20), output).RunAsync(TestContext.Current.CancellationToken);
+
+        summary.Total.Should().Be(20);
+        var root = ReadArray(output);
+        root.GetProperty("runId").GetString().Should().Be("r-1");
+        var records = root.GetProperty("records").EnumerateArray().ToList();
+        records.Select(r => r.GetProperty("Summary").GetString()).Should().Equal(Enumerable.Range(1, 20).Select(i => "s" + i));
+        foreach (var record in records)
+        {
+            record.TryGetProperty("Issue key", out _).Should().BeFalse();
+            record.GetProperty("Request type").GetString().Should().Be("Access Removal");
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_AllUrgencyImpactPairs_PriorityMatchesMatrix_PerAC2()
+    {
+        var output = _dir.Combine("result.json");
+
+        await CreateRunner(WriteKeylessEnvelope(25), output, new CyclingPipeline()).RunAsync(TestContext.Current.CancellationToken);
+
+        var records = ReadArray(output).GetProperty("records").EnumerateArray().ToList();
+        records.Should().HaveCount(25);
+        foreach (var record in records)
+        {
+            JiraVocabulary.TryParseUrgency(record.GetProperty("Urgency").GetString(), out var urgency).Should().BeTrue();
+            JiraVocabulary.TryParseImpact(record.GetProperty("Impact").GetString(), out var impact).Should().BeTrue();
+            record.GetProperty("Priority").GetString().Should().Be(PriorityMatrix.Resolve(urgency, impact).ToString());
+        }
+    }
+
+    private static readonly string[] SevenFields =
+    [
+        "Work type", "Affected Business or IT Services", "Service Team(s)", "Assignee", "Priority", "Resolution", "All Comments",
+    ];
+
+    private static readonly string[] ResolutionVocabulary = ["done", "cancelled", "clarification", "cannot reproduce"];
+
+    [Fact]
+    public async Task RunAsync_EveryRecordHasSevenFieldsAndResolutionInVocabulary_PerAC2()
+    {
+        var output = _dir.Combine("result.json");
+
+        await CreateRunner(WriteKeylessEnvelope(25), output, new CyclingPipeline()).RunAsync(TestContext.Current.CancellationToken);
+
+        var records = ReadArray(output).GetProperty("records").EnumerateArray().ToList();
+        records.Should().HaveCount(25);
+        foreach (var record in records)
+        {
+            foreach (var field in SevenFields)
+            {
+                record.TryGetProperty(field, out _).Should().BeTrue(field);
+            }
+
+            record.GetProperty("Resolution").GetString().Should().BeOneOf(ResolutionVocabulary);
+        }
+
+        records.Select(r => r.GetProperty("Resolution").GetString()).Distinct().Should().BeEquivalentTo(ResolutionVocabulary);
+    }
+
+    [Fact]
+    public async Task RunAsync_FallbackRecord_AlsoCarriesResolutionStatus_PerAC2()
+    {
+        var output = _dir.Combine("result.json");
+
+        await CreateRunner(WriteInput("A-1", "A-2"), output, new FakeTriagePipeline(fallbackKeys: ["A-2"]))
+            .RunAsync(TestContext.Current.CancellationToken);
+
+        var fallback = ReadArray(output)[1];
+        fallback.GetProperty("All Comments").GetArrayLength().Should().Be(0);
+        fallback.GetProperty("Resolution").GetString().Should().BeOneOf(ResolutionVocabulary);
+    }
+
     [Fact]
     public async Task RunAsync_PriorityEqualsMatrixResult_PerAC2()
     {

@@ -11,7 +11,7 @@ namespace TicketTriage.Agents.Drafting;
 /// <summary>
 /// LLM-backed resolution draft. Invalid or missing output throws: the pipeline owns retry, Failed state and fallback.
 /// </summary>
-internal sealed class LlmResolutionDrafter : IResolutionDrafter, IResolutionDraftAgent
+internal sealed class LlmResolutionDrafter : IResolutionDrafter
 {
     private readonly ChatClientAgent _agent;
     private readonly ILogger<LlmResolutionDrafter> _logger;
@@ -30,31 +30,25 @@ internal sealed class LlmResolutionDrafter : IResolutionDrafter, IResolutionDraf
         });
     }
 
-    public async Task<string> DraftAsync(
+    public async Task<ResolutionDraft> DraftAsync(
         Ticket ticket,
         TicketClassification classification,
-        IReadOnlyList<SimilarTicket> similarTickets,
-        CancellationToken cancellationToken) =>
-        (await DraftWithStatusAsync(ticket, classification, similarTickets, cancellationToken)).Comment;
-
-    public async Task<ResolutionDraft> DraftWithStatusAsync(
-        Ticket ticket,
-        TicketClassification classification,
+        RoutingDecision routing,
         IReadOnlyList<SimilarTicket> similarTickets,
         CancellationToken cancellationToken)
     {
         _logger.LogDebug("Drafting resolution for ticket {TicketKey} with prompt {PromptVersion}.", ticket.Key, DraftPrompts.Version);
 
-        var assignee = DraftPrompts.InferAssignee(classification, similarTickets);
         var response = await _agent.RunAsync<DraftDto>(
-            DraftPrompts.BuildUserMessage(ticket, classification, similarTickets, assignee),
+            DraftPrompts.BuildUserMessage(ticket, classification, routing, similarTickets),
             cancellationToken: cancellationToken);
 
+        _logger.LogDebug("Drafted comment language: {Language}.", response.Result.Language);
         return response.Result.ToDomain();
     }
 
     internal sealed record DraftDto(
-        [property: Description("Done, Cancelled, Clarification or Cannot Reproduce")] string? ResolutionStatus,
+        [property: Description("Exactly one of: done, cancelled, clarification, cannot reproduce")] string? ResolutionStatus,
         [property: Description("Language of the ticket text, e.g. English or German")] string? Language,
         [property: Description("The resolution comment, written in that language")] string? Comment)
     {
@@ -67,8 +61,7 @@ internal sealed class LlmResolutionDrafter : IResolutionDrafter, IResolutionDraf
 
             return new ResolutionDraft(
                 EnumNames.Parse<ResolutionStatus>(ResolutionStatus, "resolution status"),
-                Comment.Trim(),
-                string.IsNullOrWhiteSpace(Language) ? "unknown" : Language.Trim());
+                Comment.Trim());
         }
     }
 }

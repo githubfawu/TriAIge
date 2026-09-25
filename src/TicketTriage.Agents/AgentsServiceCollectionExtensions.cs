@@ -41,9 +41,7 @@ public static class AgentsServiceCollectionExtensions
         // Registered after AddTriageInfrastructure, so these replace its TryAdd* stubs (last registration wins).
         services.TryAddSingleton<IServiceCatalogProvider, CoreServiceCatalogProvider>();
         services.AddScoped<ITicketClassifier, LlmTicketClassifier>();
-        services.AddScoped<LlmResolutionDrafter>();
-        services.AddScoped<IResolutionDrafter>(sp => sp.GetRequiredService<LlmResolutionDrafter>());
-        services.AddScoped<IResolutionDraftAgent>(sp => sp.GetRequiredService<LlmResolutionDrafter>());
+        services.AddScoped<IResolutionDrafter, LlmResolutionDrafter>();
 
         // Singleton so the probe cache is shared across health-check runs.
         services.AddSingleton<AgentFrameworkHealthCheck>();
