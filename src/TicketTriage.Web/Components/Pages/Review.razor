@@ -189,7 +189,17 @@ else
             {
                 @if (_review.Suggestion is { IsFallback: true })
                 {
-                    <div class="tt-note tt-note-warning">This is a fallback suggestion (the agent could not produce one). Check every field.</div>
+                    <div class="tt-note tt-note-warning">
+                        This is a fallback suggestion (the agent could not produce one). Check every field.
+                        @if (_review.IsFailed)
+                        {
+                            <div class="tt-note-detail">
+                                The analysis failed @(_failureReason is { } reason ? $"({reason})" : "") after all retries.
+                                <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Warning" OnClick="RequeueAsync" Disabled="_busy"
+                                           StartIcon="@Icons.Material.Outlined.Replay" id="review-retry-button">Retry analysis</MudButton>
+                            </div>
+                        }
+                    </div>
                 }
                 @if (CountState(FieldState.Missing) + CountState(FieldState.Conflict) > 0)
                 {
