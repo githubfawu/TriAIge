@@ -97,21 +97,22 @@ public partial class Review : IAsyncDisposable
 
     // ---- Review guidance (display only): what the analyst should look at, field by field. ----
 
+    // Three levels, like form validation: an error must be fixed, a warning must be confirmed, info needs no action.
     private enum FieldState
     {
         Ok,
-        Changed,
-        Edited,
-        Missing,
+        Filled,     // info: the original was empty and the agent filled it (normal, no action)
+        Conflict,   // warning: the agent overrode a value the reporter gave, or the whole suggestion is a fallback
+        Edited,     // the analyst changed the suggestion
+        Missing,    // error: a value the result needs is empty
     }
 
-    private static readonly SuggestionField[] OverviewFields =
+    private static readonly SuggestionField[] ReviewFields =
     [
         SuggestionField.WorkType, SuggestionField.AffectedServices, SuggestionField.ServiceTeams, SuggestionField.Assignee,
         SuggestionField.Urgency, SuggestionField.Impact, SuggestionField.ResolutionStatus, SuggestionField.DraftComment,
     ];
 
-    // Empty values the result export needs: these are what the analyst has to fill before accepting.
     private bool IsMissing(SuggestionField field) => _form is not null && field switch
     {
         SuggestionField.AffectedServices => _form.AffectedServices.Count == 0,
@@ -122,24 +123,47 @@ public partial class Review : IAsyncDisposable
         _ => false,
     };
 
-    // A fallback suggestion was not produced by the agent, so every field needs a human look.
-    private FieldState StateOf(SuggestionField field) =>
-        _form is null ? FieldState.Ok
-        : IsMissing(field) ? FieldState.Missing
-        : _form.EditedFields().Contains(field) ? FieldState.Edited
-        : Differs(field) || _review?.Suggestion is { IsFallback: true } ? FieldState.Changed
-        : FieldState.Ok;
+    private bool HasOriginal(SuggestionField field) => OriginalDisplay(field) is not "—";
+
+    // An empty original is the common case for challenge tickets; "was: —" there is noise.
+    private string WasText(SuggestionField field) =>
+        OriginalDisplay(field) is "—" ? "not set in original" : $"was: {OriginalDisplay(field)}";
+
+    private FieldState StateOf(SuggestionField field)
+    {
+        if (_form is null)
+        {
+            return FieldState.Ok;
+        }
+
+        if (IsMissing(field))
+        {
+            return FieldState.Missing;
+        }
+
+        if (_form.EditedFields().Contains(field))
+        {
+            return FieldState.Edited;
+        }
+
+        if (_review?.Suggestion is { IsFallback: true } || (Differs(field) && HasOriginal(field)))
+        {
+            return FieldState.Conflict;
+        }
+
+        return Differs(field) || (field == SuggestionField.DraftComment && !IsMissing(field)) ? FieldState.Filled : FieldState.Ok;
+    }
 
     private static string FieldId(SuggestionField field) => "f-" + field.ToString().ToLowerInvariant();
 
-    // First field that needs attention: missing values before AI changes to verify.
-    private string? FirstAttentionAnchor =>
-        OverviewFields.Where(f => StateOf(f) == FieldState.Missing)
-            .Concat(OverviewFields.Where(f => StateOf(f) == FieldState.Changed))
-            .Select(f => $"review/{Id}#{FieldId(f)}")
-            .FirstOrDefault();
+    private string FieldAnchor(SuggestionField field) => $"review/{Id}#{FieldId(field)}";
 
-    private int CountState(FieldState state) => OverviewFields.Count(f => StateOf(f) == state);
+    private IEnumerable<SuggestionField> FieldsIn(FieldState state) => ReviewFields.Where(f => StateOf(f) == state);
+
+    private int CountState(FieldState state) => FieldsIn(state).Count();
+
+    private string? FirstAttentionAnchor =>
+        FieldsIn(FieldState.Missing).Concat(FieldsIn(FieldState.Conflict)).Select(FieldAnchor).FirstOrDefault();
 
     private string FieldClass(SuggestionField field) =>
         $"tt-fs-{StateOf(field).ToString().ToLowerInvariant()}" + (Differs(field) ? " tt-field-changed" : "");
@@ -147,24 +171,26 @@ public partial class Review : IAsyncDisposable
     private string? Hint(SuggestionField field) => StateOf(field) switch
     {
         FieldState.Missing => "Required – please set a value",
+        FieldState.Conflict when _review?.Suggestion is { IsFallback: true } => "Fallback value – please check",
+        FieldState.Conflict => $"AI changed this · {WasText(field)} – please confirm",
         FieldState.Edited => field == SuggestionField.DraftComment ? "Edited by you" : $"Edited by you · {WasText(field)}",
-        FieldState.Changed => $"Verify AI suggestion · {WasText(field)}",
+        FieldState.Filled => field == SuggestionField.DraftComment ? "Drafted by AI" : "Filled by AI",
         _ => null,
+    };
+
+    // One line per item in the "Before you accept" list.
+    private string TodoText(SuggestionField field) => StateOf(field) switch
+    {
+        FieldState.Missing => $"{FieldName(field)} is missing",
+        _ => $"{FieldName(field)}: AI changed {OriginalDisplay(field)} → {CurrentDisplay(field)}",
     };
 
     private static string HintIcon(FieldState state) => state switch
     {
         FieldState.Missing => MudBlazor.Icons.Material.Outlined.ErrorOutline,
+        FieldState.Conflict => MudBlazor.Icons.Material.Outlined.WarningAmber,
         FieldState.Edited => MudBlazor.Icons.Material.Outlined.EditNote,
         _ => MudBlazor.Icons.Material.Outlined.AutoAwesome,
-    };
-
-    private static string StateLabel(FieldState state) => state switch
-    {
-        FieldState.Missing => "Needs input",
-        FieldState.Edited => "Edited",
-        FieldState.Changed => "Verify",
-        _ => "Unchanged",
     };
 
     private static string FieldName(SuggestionField field) => field switch
@@ -189,16 +215,8 @@ public partial class Review : IAsyncDisposable
         SuggestionField.Urgency => TriageVocabulary.ToJsonName(_form.Urgency),
         SuggestionField.Impact => TriageVocabulary.ToJsonName(_form.Impact),
         SuggestionField.ResolutionStatus => _form.Resolution is { } r ? TriageVocabulary.ToJsonName(r) : null,
-        SuggestionField.DraftComment => string.IsNullOrWhiteSpace(_form.Comment) ? null : "Draft reply",
         _ => null,
     }) is { Length: > 0 } value ? value : "—";
-
-    private string OriginalOverview(SuggestionField field) =>
-        field == SuggestionField.DraftComment ? "—" : OriginalDisplay(field);
-
-    // An empty original is the common case for challenge tickets; "was: —" there is noise.
-    private string WasText(SuggestionField field) =>
-        OriginalDisplay(field) is "—" ? "not set in original" : $"was: {OriginalDisplay(field)}";
 
     private string OriginalDisplay(SuggestionField field) => (_review is null ? null : field switch
     {

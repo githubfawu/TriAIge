@@ -1852,3 +1852,127 @@ a.tt-attention:hover {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
 }
+
+/* ---------- Three-level review guidance: error (fix) / warning (review) / info (no action) ---------- */
+.tt-attention-ok {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: #15803d;
+}
+
+.tt-todo {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border: 1px solid #fecaca;
+    border-left: 4px solid #dc2626;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.tt-todo:not(:has(.tt-todo-error)) {
+    border-color: #fde68a;
+    border-left-color: #f59e0b;
+}
+
+.tt-todo-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.tt-todo ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tt-todo li {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    font-size: 0.78rem;
+}
+
+.tt-todo li::before {
+    content: "";
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    transform: translateY(-1px);
+}
+
+.tt-todo-error::before { background: #dc2626; }
+.tt-todo-warning::before { background: #f59e0b; }
+
+.tt-todo li a {
+    color: #111827;
+    text-decoration: underline;
+    text-decoration-color: #d1d5db;
+    text-underline-offset: 2px;
+}
+
+.tt-todo-error a { color: #b91c1c !important; font-weight: 600; }
+
+.tt-todo li a:hover {
+    text-decoration-color: currentColor;
+}
+
+.tt-todo-ok {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #bbf7d0;
+    border-left: 4px solid #16a34a;
+    color: #15803d;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+/* Field levels. Conflict = warning (amber frame + bar), Filled = info only (no frame colour). */
+.tt-side .tt-fs-conflict,
+.tt-side .tt-fs-missing {
+    position: relative;
+}
+
+.tt-side .tt-fs-conflict::before,
+.tt-side .tt-fs-missing::before {
+    content: "";
+    position: absolute;
+    left: -18px;
+    top: 2px;
+    bottom: 2px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+}
+
+.tt-side .tt-fs-conflict::before { background: #f59e0b; }
+
+.tt-side .tt-fs-conflict .mud-input.mud-input-outlined {
+    background: #fffbeb;
+}
+
+.tt-side .tt-fs-conflict .mud-input-outlined-border {
+    border-color: #f59e0b !important;
+    border-width: 1.5px !important;
+}
+
+.tt-hint-conflict { color: #b45309; font-weight: 600; }
+.tt-hint-filled { color: #9ca3af; }
+
+.tt-flag-conflict {
+    color: #92400e;
+    background: #fde68a;
+}
+
+/* Info-level fields stay neutral: no amber frame, no accent bar. */
+.tt-side .tt-fs-filled .mud-input.mud-input-outlined {
+    background: #ffffff;
+}

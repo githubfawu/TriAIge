@@ -1,0 +1,21 @@
+[
+  {
+    "Issue key": "DEMO-1",
+    "Summary": "Outlook crashes for the whole Zurich trading desk since this morning",
+    "Description": "All traders in Zurich report that Outlook crashes on start. They cannot receive trade confirmations by e-mail. Business impact is high.",
+    "Work type": "Service Request",
+    "Affected Business or IT Services": [ "Tax Reporting" ],
+    "Service Team(s)": [ "Tax & Reporting" ],
+    "Urgency": "Lowest",
+    "Impact": "No Impact"
+  },
+  {
+    "Issue key": "DEMO-2",
+    "Summary": "Please create a new SimCorp Dimension user for a portfolio manager",
+    "Description": "New joiner in portfolio management needs a SimCorp Dimension account with read access from next Monday.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": [ "Trading Platform" ],
+    "Urgency": "Critical",
+    "Impact": "Major"
+  }
+]
