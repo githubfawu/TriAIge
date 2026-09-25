@@ -325,11 +325,6 @@ body {
     border-bottom-color: #eef0f3;
 }
 
-.tt-page .mud-table-container {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-}
-
 .tt-page .mud-chip {
     font-size: 0.75rem;
     font-weight: 500;
@@ -407,4 +402,279 @@ body {
 .tt-page .mud-input > textarea {
     font-weight: 400;
     font-size: 0.8125rem;
+}
+
+/* ---------- Page header + toolbar (reference: title left, primary action right, search + filters below) ---------- */
+.tt-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.tt-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.tt-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 240px;
+    flex: 0 1 300px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #9ca3af;
+    cursor: text;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.tt-search:focus-within {
+    border-color: #22a55b;
+    box-shadow: 0 0 0 3px rgba(34, 165, 91, 0.12);
+}
+
+.tt-search-input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.8125rem;
+    color: #111827;
+}
+
+.tt-filters {
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid #e5e7eb;
+    border-radius: 9px;
+    background: #f7f8fa;
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: thin;
+}
+
+.tt-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: #4b5563;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.tt-filter:hover {
+    background: #eceff3;
+    color: #111827;
+}
+
+.tt-filter:focus-visible {
+    outline: 2px solid #22a55b;
+    outline-offset: 1px;
+}
+
+.tt-filter.active {
+    background: #ffffff;
+    color: #111827;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08), 0 0 0 1px #e5e7eb;
+}
+
+.tt-count {
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #e7eaee;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+    color: #4b5563;
+}
+
+.tt-filter.active .tt-count {
+    background: #111827;
+    color: #ffffff;
+}
+
+.tt-state-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+}
+
+.tt-dot-queued { background: #9ca3af; }
+.tt-dot-analysing { background: #0ea5e9; }
+.tt-dot-failed, .tt-dot-rejected { background: #dc2626; }
+.tt-dot-pending { background: #eab308; }
+.tt-dot-approved { background: #16a34a; }
+
+/* ---------- Data grid: sticky header, vertical + horizontal scroll, single-line rows ---------- */
+.tt-grid.mud-table {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.tt-page .tt-grid .mud-table-container {
+    max-height: calc(100vh - 290px);
+    border: 0;
+    border-radius: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+
+.tt-tickets-grid .mud-table-root {
+    min-width: 900px;
+    table-layout: auto;
+}
+
+.tt-grid .mud-table-head .mud-table-cell {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 38px;
+    padding-top: 0;
+    padding-bottom: 0;
+    white-space: nowrap;
+    background: #f9fafb !important;
+}
+
+.tt-grid .mud-table-body .mud-table-cell {
+    height: 44px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.tt-grid .mud-table-body .mud-table-row:last-child .mud-table-cell {
+    border-bottom: 0;
+}
+
+.tt-grid .mud-table-body .mud-table-row:hover .mud-table-cell {
+    background: #f7f8fa;
+}
+
+.tt-col-key {
+    width: 110px;
+    font-variant-numeric: tabular-nums;
+    color: #374151;
+    font-weight: 500;
+}
+
+.tt-col-summary {
+    width: 100%;
+    max-width: 0;
+    min-width: 260px;
+}
+
+.tt-ellipsis {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #111827;
+}
+
+.tt-col-prio,
+.tt-col-type {
+    width: 1%;
+}
+
+.tt-col-state {
+    width: 1%;
+}
+
+.tt-col-chevron {
+    width: 32px;
+    padding-left: 0 !important;
+    text-align: right;
+}
+
+.tt-state-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tt-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 9px 0 7px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.tt-type .mud-icon-root {
+    font-size: 0.95rem;
+    color: #6b7280;
+}
+
+.tt-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 40px 16px;
+    color: #9ca3af;
+    font-size: 0.8125rem;
+}
+
+/* Upload page: the reference uses compact buttons, not full-width bars. */
+.tt-page .mud-file-upload .mud-button-root {
+    width: auto;
+}
+
+/* ---------- Narrow screens: tighter canvas; tables keep their width and scroll horizontally ---------- */
+@media (max-width: 960px) {
+    .tt-canvas {
+        padding: 8px;
+    }
+
+    .tt-page {
+        padding: 16px;
+        border-radius: 10px;
+    }
+
+    .tt-search {
+        flex: 1 1 100%;
+    }
+}
+
+.tt-state-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #4b5563;
 }

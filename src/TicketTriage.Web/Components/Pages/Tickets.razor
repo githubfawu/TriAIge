@@ -2,65 +2,99 @@
 
 <PageTitle>Tickets · TriAIge</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4">Tickets</MudText>
+<div class="tt-page-header">
+    <div>
+        <MudText Typo="Typo.h4">Tickets</MudText>
+        <MudText Typo="Typo.body2" Class="tt-muted">@_rows.Count tickets in triage · updates live</MudText>
+    </div>
+    <MudButton Href="upload" Variant="Variant.Filled" Color="Color.Primary" DropShadow="false"
+               StartIcon="@Icons.Material.Outlined.FileUpload">
+        Upload tickets
+    </MudButton>
+</div>
 
-<MudChipSet T="TicketDisplayState?" SelectedValue="_filter" SelectedValueChanged="SetFilter"
-            SelectionMode="SelectionMode.SingleSelection" SelectedColor="Color.Secondary" Class="mb-4">
-    <MudChip Value="@((TicketDisplayState?)null)">All (@_rows.Count)</MudChip>
-    @foreach (var state in Enum.GetValues<TicketDisplayState>())
-    {
-        <MudChip Value="@((TicketDisplayState?)state)">@state (@_rows.Count(r => r.State == state))</MudChip>
-    }
-</MudChipSet>
+<div class="tt-toolbar">
+    <label class="tt-search">
+        <MudIcon Icon="@Icons.Material.Outlined.Search" Size="Size.Small" />
+        <input class="tt-search-input" type="search" placeholder="Search by summary or key…" aria-label="Search tickets"
+               @bind="_search" @bind:event="oninput" />
+    </label>
+    <div class="tt-filters" role="group" aria-label="Filter by state">
+        <button type="button" class="tt-filter @(_filter is null ? "active" : null)" aria-pressed="@(_filter is null)"
+                @onclick="() => SetFilter(null)">
+            All <span class="tt-count">@_rows.Count</span>
+        </button>
+        @foreach (var state in Enum.GetValues<TicketDisplayState>())
+        {
+            <button type="button" class="tt-filter @(_filter == state ? "active" : null)" aria-pressed="@(_filter == state)"
+                    @onclick="() => SetFilter(state)">
+                <span class="tt-state-dot tt-dot-@state.ToString().ToLowerInvariant()"></span>
+                @state <span class="tt-count">@_rows.Count(r => r.State == state)</span>
+            </button>
+        }
+    </div>
+</div>
 
-<MudDataGrid T="TicketBoardRow" Items="FilteredRows" RowClick="OpenReview" Hover Dense
+<MudDataGrid T="TicketBoardRow" Items="FilteredRows" RowClick="OpenReview" Hover Dense FixedHeader
+             Class="tt-grid tt-tickets-grid" Elevation="0"
              RowClassFunc="@((TicketBoardRow _, int _) => "tt-row-clickable")">
     <Columns>
-        <TemplateColumn Title="" Sortable="false">
+        <PropertyColumn Property="x => x.IssueKey" Title="Ticket" CellClass="tt-col-key" HeaderClass="tt-col-key" />
+        <TemplateColumn Title="Summary" SortBy="@(x => x.Summary)" CellClass="tt-col-summary" HeaderClass="tt-col-summary">
             <CellTemplate>
-                <TrafficLight State="context.Item.State" />
+                <span class="tt-ellipsis" title="@context.Item.Summary">@context.Item.Summary</span>
             </CellTemplate>
         </TemplateColumn>
-        <PropertyColumn Property="x => x.Id" Title="#" />
-        <PropertyColumn Property="x => x.IssueKey" Title="Issue key" />
-        <PropertyColumn Property="x => x.Summary" Title="Summary" />
-        <TemplateColumn Title="Work type" Sortable="false">
+        <TemplateColumn Title="Priority" SortBy="@(x => PriorityRank(ShownPriority(x)))" CellClass="tt-col-prio">
             <CellTemplate>
-                @context.Item.WorkType
-                @if (context.Item.SuggestedWorkType is { } suggested)
+                @{ var shown = ShownPriority(context.Item); }
+                @if (shown is null)
                 {
-                    <MudText Typo="Typo.caption" Class="d-block">@(context.Item.IsFinal ? "final" : "suggested"): @suggested</MudText>
+                    <span class="tt-muted" title="Not analysed yet">—</span>
+                }
+                else
+                {
+                    <span class="tt-prio @PrioClass(shown)" title="@PriorityTooltip(context.Item)">@shown</span>
                 }
             </CellTemplate>
         </TemplateColumn>
-        <TemplateColumn Title="Priority" Sortable="false">
+        <TemplateColumn Title="Type" SortBy="@(x => ShownWorkType(x))" CellClass="tt-col-type">
             <CellTemplate>
-                @{ var shown = context.Item.SuggestedPriority ?? (context.Item.Priority == "—" ? null : context.Item.Priority); }
-                <span class="tt-prio @PrioClass(shown)">@(shown ?? "—")</span>
-                @if (context.Item.SuggestedPriority is not null)
-                {
-                    <MudText Typo="Typo.caption" Class="d-block tt-muted">@(context.Item.IsFinal ? "final" : "suggested") · original @context.Item.Priority</MudText>
-                }
+                @{ var type = ShownWorkType(context.Item); }
+                <span class="tt-type" title="@WorkTypeTooltip(context.Item)">
+                    <MudIcon Icon="@TypeIcon(type)" Size="Size.Small" />
+                    @type
+                </span>
             </CellTemplate>
         </TemplateColumn>
-        <TemplateColumn Title="State" Sortable="false">
+        <TemplateColumn Title="State" SortBy="@(x => x.State)" CellClass="tt-col-state">
             <CellTemplate>
-                @context.Item.State
-                @if (context.Item.State == TicketDisplayState.Failed)
-                {
-                    <span @onclick:stopPropagation="true">
-                        <MudButton Size="Size.Small"
-                                   Variant="Variant.Outlined"
-                                   Color="Color.Error"
-                                   OnClick="@(() => RequeueAsync(context.Item))">
-                            Re-queue
-                        </MudButton>
-                    </span>
-                }
+                <div class="tt-state-cell">
+                    <TrafficLight State="context.Item.State" />
+                    @if (context.Item.State == TicketDisplayState.Failed)
+                    {
+                        <span @onclick:stopPropagation="true">
+                            <MudButton Size="Size.Small"
+                                       Variant="Variant.Outlined"
+                                       Color="Color.Error"
+                                       OnClick="@(() => RequeueAsync(context.Item))">
+                                Re-queue
+                            </MudButton>
+                        </span>
+                    }
+                </div>
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="" Sortable="false" CellClass="tt-col-chevron">
+            <CellTemplate>
+                <MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Size="Size.Small" Class="tt-muted" />
             </CellTemplate>
         </TemplateColumn>
     </Columns>
     <NoRecordsContent>
-        <MudText>No tickets in triage yet - upload a file to get started.</MudText>
+        <div class="tt-empty">
+            <MudIcon Icon="@Icons.Material.Outlined.Inbox" />
+            <div>@(_rows.Count == 0 ? "No tickets in triage yet - upload a file to get started." : "No tickets match this filter.")</div>
+        </div>
     </NoRecordsContent>
 </MudDataGrid>

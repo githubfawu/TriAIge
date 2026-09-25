@@ -20,7 +20,7 @@
                 <MudCard Outlined Class="tt-state-card">
                     <MudCardContent>
                         <MudText Typo="Typo.h5">@CountFor(state)</MudText>
-                        <MudText Typo="Typo.body2">@state</MudText>
+                        <MudText Typo="Typo.body2" Class="tt-state-label"><span class="tt-state-dot tt-dot-@state.ToString().ToLowerInvariant()"></span>@state</MudText>
                     </MudCardContent>
                 </MudCard>
             </MudLink>
