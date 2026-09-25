@@ -24,13 +24,17 @@ public sealed class ChallengeDocumentStreamTests
     };
 
     [Fact]
-    public async Task ReadAsync_Envelope_ReadsRecordsWithPositionalKeys_PerAC1()
+    public async Task ReadAsync_Envelope_ReadsRecordsWithContentKeys_PerAC1()
     {
         await using var stream = Stream("""{"runId":"r","records":[{"Summary":"s1"},{"Summary":"s2"}]}""");
 
         var doc = await ChallengeDocument.ReadAsync(stream, TestContext.Current.CancellationToken);
 
-        doc.Tickets.Select(t => t.Key).Should().Equal("#1", "#2");
+        doc.Tickets.Select(t => t.Key).Should().Equal(
+            ChallengeDocument.ContentKey(new JsonObject { ["Summary"] = "s1" }),
+            ChallengeDocument.ContentKey(new JsonObject { ["Summary"] = "s2" }));
+        doc.Tickets.Select(t => t.Key).Should().OnlyHaveUniqueItems()
+            .And.AllSatisfy(k => k.Should().MatchRegex("^#[0-9a-f]{16}$"));
     }
 
     [Fact]
@@ -40,7 +44,27 @@ public sealed class ChallengeDocumentStreamTests
 
         var doc = await ChallengeDocument.ReadAsync(stream, TestContext.Current.CancellationToken);
 
-        doc.Tickets.Select(t => t.Key).Should().Equal("CH-7", "#2");
+        doc.Tickets.Select(t => t.Key).Should().Equal("CH-7", ChallengeDocument.ContentKey(new JsonObject { ["Summary"] = "t" }));
+    }
+
+    [Fact]
+    public void Parse_KeylessRecords_KeyDependsOnContentNotPosition()
+    {
+        var first = ChallengeDocument.Parse(JsonNode.Parse("""[{"Summary":"a"},{"Summary":"b"}]"""));
+        var reordered = ChallengeDocument.Parse(JsonNode.Parse("""[{"Summary":"b"},{"Summary":"a"}]"""));
+        var other = ChallengeDocument.Parse(JsonNode.Parse("""[{"Summary":"c"}]"""));
+
+        reordered.Tickets.Select(t => t.Key).Should().Equal(first.Tickets[1].Key, first.Tickets[0].Key);
+        other.Tickets[0].Key.Should().NotBe(first.Tickets[0].Key);
+    }
+
+    [Fact]
+    public void Parse_IdenticalKeylessRecords_ShareOneKey_AndAreNotReportedAsDuplicates()
+    {
+        var doc = ChallengeDocument.Parse(JsonNode.Parse("""[{"Summary":"a"},{"Summary":"a"}]"""));
+
+        doc.Tickets[0].Key.Should().Be(doc.Tickets[1].Key);
+        doc.DuplicateKeys.Should().BeEmpty();
     }
 
     [Theory]

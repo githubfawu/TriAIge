@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,7 @@ internal sealed class TriagePipeline(
     ITicketClassifier classifier,
     IRoutingResolver routingResolver,
     IRoutingStatisticsSource statisticsSource,
+    IAssigneeWorkload workload,
     IResolutionDrafter drafter,
     IOptions<TriageOptions> options,
     ITriageFailureStore failureStore,
@@ -43,11 +45,14 @@ internal sealed class TriagePipeline(
         Ticket? normalized = null;
         IReadOnlyList<SimilarTicket>? similar = null;
         var attempt = 0;
+        var ticketStarted = Stopwatch.GetTimestamp();
 
         while (true)
         {
             attempt++;
             var step = "Normalize";
+            var attemptStarted = Stopwatch.GetTimestamp();
+            var lap = attemptStarted;
             try
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(outerToken);
@@ -55,18 +60,23 @@ internal sealed class TriagePipeline(
                 var token = cts.Token;
 
                 normalized ??= normalizer.Normalize(ticket).Ticket;
+                StepDone(ticket, attempt, step, ref lap);
 
                 step = "Similar";
                 similar ??= await similarSource.FindSimilarAsync(normalized, settings.SimilarTicketCount, token);
+                var similarMs = StepDone(ticket, attempt, step, ref lap);
 
                 step = "Classify";
                 var classification = await classifier.ClassifyAsync(normalized, similar, token);
+                var classifyMs = StepDone(ticket, attempt, step, ref lap);
 
                 step = "Route";
                 var routing = await routingResolver.ResolveAsync(normalized, classification, similar, token);
+                var routeMs = StepDone(ticket, attempt, step, ref lap);
 
                 step = "Draft";
                 var draft = await drafter.DraftAsync(normalized, classification, routing, similar, token);
+                var draftMs = StepDone(ticket, attempt, step, ref lap);
 
                 step = "Validate";
                 var suggestion = new TriageSuggestion
@@ -83,8 +93,22 @@ internal sealed class TriagePipeline(
                     SimilarTicketKeys = [.. similar.Select(s => s.Ticket.Key)],
                 };
                 SuggestionValidator.Validate(suggestion, await statisticsSource.GetAsync(token));
+                var validateMs = StepDone(ticket, attempt, step, ref lap);
 
+                await workload.ReserveAsync(suggestion.Assignee, token);
                 await ResetRetriesAsync(ticket, outerToken);
+                logger.LogInformation(
+                    "Triage of {TicketKey} succeeded on attempt {Attempt} in {ElapsedMs} ms (ticket total {TotalMs} ms): "
+                        + "similar {SimilarMs} ms, classify {ClassifyMs} ms, route {RouteMs} ms, draft {DraftMs} ms, validate {ValidateMs} ms",
+                    ticket.Key,
+                    attempt,
+                    ElapsedMs(attemptStarted),
+                    ElapsedMs(ticketStarted),
+                    similarMs,
+                    classifyMs,
+                    routeMs,
+                    draftMs,
+                    validateMs);
                 return suggestion;
             }
             catch (OperationCanceledException) when (outerToken.IsCancellationRequested)
@@ -94,6 +118,9 @@ internal sealed class TriagePipeline(
             catch (Exception ex)
             {
                 var reason = Describe(step, ex);
+                logger.LogInformation(
+                    "Triage attempt {Attempt} for {TicketKey} stopped in step {Step} after {ElapsedMs} ms (step {StepMs} ms)",
+                    attempt, ticket.Key, step, ElapsedMs(attemptStarted), ElapsedMs(lap));
                 var persisted = await RecordAsync(ticket, attempt, reason, ex, outerToken);
                 var exhausted = Math.Max(attempt, persisted ?? 0) >= settings.RetryCount;
 
@@ -111,12 +138,14 @@ internal sealed class TriagePipeline(
                 if (exhausted)
                 {
                     logger.LogWarning(
-                        "Triage of {TicketKey} failed after attempt {Attempt} ({Reason}); using fallback",
-                        ticket.Key, attempt, reason);
+                        "Triage of {TicketKey} failed after attempt {Attempt} ({Reason}) and {TotalMs} ms; using fallback",
+                        ticket.Key, attempt, reason, ElapsedMs(ticketStarted));
+                    var assignee = await LoadAssigneeForFallbackAsync(settings, outerToken);
                     return FallbackSuggestionFactory.Create(
                         normalized ?? ticket,
                         similar ?? [],
                         await LoadStatisticsForFallbackAsync(ticket, settings, outerToken),
+                        assignee,
                         logger);
                 }
 
@@ -126,6 +155,18 @@ internal sealed class TriagePipeline(
                 }
             }
         }
+    }
+
+    private static long ElapsedMs(long started) => (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+
+    /// <summary>Logs the step at Debug (the timeline) and returns its duration; <paramref name="lap"/> moves to now.</summary>
+    private long StepDone(Ticket ticket, int attempt, string step, ref long lap)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var elapsedMs = (long)Stopwatch.GetElapsedTime(lap, now).TotalMilliseconds;
+        lap = now;
+        logger.LogDebug("Triage of {TicketKey} attempt {Attempt}: {Step} took {StepMs} ms", ticket.Key, attempt, step, elapsedMs);
+        return elapsedMs;
     }
 
     // A statistics failure must not break the fallback: it then carries no routing, which the validator treats as consistent.
@@ -145,6 +186,28 @@ internal sealed class TriagePipeline(
         {
             logger.LogWarning("Fallback routing statistics unavailable for {TicketKey}: {ExceptionType}", ticket.Key, ex.GetType().FullName);
             return RoutingStatistics.Empty;
+        }
+    }
+
+    // Like the statistics, a workload failure must not break the fallback: it then carries no assignee.
+    private async Task<string?> LoadAssigneeForFallbackAsync(TriageOptions settings, CancellationToken outerToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(outerToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(settings.TicketTimeoutSeconds));
+        try
+        {
+            var assignee = await workload.PeekLeastLoadedAsync(cts.Token);
+            await workload.ReserveAsync(assignee, cts.Token);
+            return assignee;
+        }
+        catch (OperationCanceledException) when (outerToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Fallback assignee workload unavailable: {ExceptionType}", ex.GetType().FullName);
+            return null;
         }
     }
 

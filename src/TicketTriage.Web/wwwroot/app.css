@@ -983,6 +983,12 @@ body {
     color: #9ca3af;
 }
 
+.tt-hint {
+    margin-top: 4px;
+    font-size: 0.72rem;
+    color: #6b7280;
+}
+
 .tt-prio-scale {
     display: grid;
     grid-template-columns: repeat(5, 1fr);

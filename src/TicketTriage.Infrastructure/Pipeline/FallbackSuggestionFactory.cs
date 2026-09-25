@@ -28,24 +28,25 @@ internal static class FallbackSuggestionFactory
         return new TicketClassification(workType, service is null ? [] : [service], Urgency.Medium, Impact.Moderate);
     }
 
-    // Routing comes straight from the statistics (not the resolver) so the fallback always agrees with the validator's routing rules.
+    // The team comes straight from the statistics (not the resolver) so the fallback always agrees with the validator's routing rules.
     public static TriageSuggestion Create(
         Ticket ticket,
         IReadOnlyList<SimilarTicket> similar,
         RoutingStatistics statistics,
+        string? assignee,
         ILogger logger)
     {
         var classification = Classify(similar);
-        var routing = statistics.Resolve(classification.AffectedServices);
-        logger.LogDebug("Fallback for {TicketKey} routed to {TeamCount} team(s)", ticket.Key, routing.ServiceTeams.Count);
+        var teams = statistics.ResolveTeams(classification.AffectedServices);
+        logger.LogDebug("Fallback for {TicketKey} routed to {TeamCount} team(s)", ticket.Key, teams.Count);
 
         return new TriageSuggestion
         {
             TicketKey = ticket.Key,
             WorkType = classification.WorkType,
             AffectedServices = classification.AffectedServices,
-            ServiceTeams = routing.ServiceTeams,
-            Assignee = routing.Assignee,
+            ServiceTeams = teams,
+            Assignee = assignee,
             Urgency = classification.Urgency,
             Impact = classification.Impact,
             DraftComment = null,

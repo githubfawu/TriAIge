@@ -133,9 +133,7 @@ public class OriginMarkerTests
         using var provider = new RoutingStatisticsProvider(database.Factory, new LookupNamesProvider(database.Factory), NullLogger<RoutingStatisticsProvider>.Instance);
         var statistics = await provider.GetAsync(ct);
 
-        var decision = statistics.Resolve(["Fund Pricing"]);
-        decision.ServiceTeams.Should().Equal("Client Services");
-        decision.Assignee.Should().Be("alice");
+        statistics.ResolveTeams(["Fund Pricing"]).Should().Equal("Client Services");
     }
 
     [Fact]

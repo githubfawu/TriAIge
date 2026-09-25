@@ -226,6 +226,7 @@ else
                         <MudTextField T="string" @bind-Value="_form.Assignee" MaxLength="100" Immediate="true" id="review-assignee-input"
                                       Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
                                       AdornmentIcon="@Icons.Material.Outlined.PersonOutline" />
+                        <div class="tt-hint" id="review-assignee-hint">Suggestion: the person with the fewest tickets assigned so far. Not derived from the ticket content.</div>
                         @if (Hint(SuggestionField.Assignee) is { } hintAssignee)
                         {
                             <div class="tt-hint tt-hint-@StateOf(SuggestionField.Assignee).ToString().ToLowerInvariant()"><MudIcon Icon="@HintIcon(StateOf(SuggestionField.Assignee))" Size="Size.Small" />@hintAssignee</div>

@@ -41,11 +41,12 @@ public sealed class ChallengeDocumentTests : IDisposable
     };
 
     [Fact]
-    public async Task ReadAsync_Envelope_ReadsRecordsWithPositionalKeys_PerAC1()
+    public async Task ReadAsync_Envelope_ReadsRecordsWithContentKeys_PerAC1()
     {
         var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
-        doc.Tickets.Select(t => t.Key).Should().Equal("#1", "#2");
+        doc.Tickets.Select(t => t.Key).Should().OnlyHaveUniqueItems()
+            .And.AllSatisfy(k => k.Should().MatchRegex("^#[0-9a-f]{16}$"));
         doc.Tickets.Select(t => t.Summary).Should().Equal("s1", "s2");
     }
 

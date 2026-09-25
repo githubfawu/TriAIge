@@ -54,7 +54,7 @@ internal sealed class FakeRouter(CallLog log) : IRoutingResolver
     public Task<RoutingDecision> ResolveAsync(Ticket ticket, TicketClassification classification, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken)
     {
         log.Steps.Add("route");
-        return Task.FromResult(FakeRouting.Statistics.Resolve(classification.AffectedServices));
+        return Task.FromResult(new RoutingDecision(FakeRouting.Statistics.ResolveTeams(classification.AffectedServices), FakeRouting.Assignee));
     }
 }
 
@@ -143,18 +143,40 @@ internal sealed class FixedSimilarSource(params SimilarTicket[] similar) : ISimi
 }
 
 
-/// <summary>Statistics shared by the pipeline fakes: the first catalog service routes to "Team A" / "alice".</summary>
+/// <summary>Statistics shared by the pipeline fakes: the first catalog service routes to "Team A"; the fake workload hands out "alice".</summary>
 internal static class FakeRouting
 {
     public static readonly string Service = ServiceCatalog.All[0].Name;
 
-    public static RoutingStatistics Statistics { get; } = RoutingStatistics.Build([(Service, "Team A", "alice", 1)]);
+    public const string Assignee = "alice";
+
+    public static RoutingStatistics Statistics { get; } = RoutingStatistics.Build([(Service, "Team A", 1)]);
 }
 
 internal sealed class FakeRoutingStatisticsSource(RoutingStatistics? statistics = null, bool fail = false) : IRoutingStatisticsSource
 {
     public ValueTask<RoutingStatistics> GetAsync(CancellationToken cancellationToken) =>
         fail ? throw new InvalidOperationException("statistics down") : ValueTask.FromResult(statistics ?? FakeRouting.Statistics);
+}
+
+/// <summary>Workload fake: always proposes <see cref="FakeRouting.Assignee"/> and records what was reserved.</summary>
+internal sealed class FakeWorkload(string? assignee = FakeRouting.Assignee, bool fail = false) : IAssigneeWorkload
+{
+    public List<string?> Reserved { get; } = [];
+
+    public ValueTask<string?> PeekLeastLoadedAsync(CancellationToken cancellationToken) =>
+        fail ? throw new InvalidOperationException("workload down") : ValueTask.FromResult(assignee);
+
+    public ValueTask ReserveAsync(string? reserved, CancellationToken cancellationToken)
+    {
+        if (fail)
+        {
+            throw new InvalidOperationException("workload down");
+        }
+
+        Reserved.Add(reserved);
+        return ValueTask.CompletedTask;
+    }
 }
 
 internal sealed class FixedRouter(RoutingDecision decision) : IRoutingResolver

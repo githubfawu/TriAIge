@@ -12,7 +12,7 @@ public sealed class AnalysisOptions
     public bool Enabled { get; set; } = true;
 
     [Range(1, 3600)]
-    public int IntervalSeconds { get; set; } = 30;
+    public int IntervalSeconds { get; set; } = 2;
 
     [Range(1, 100)]
     public int BatchSize { get; set; } = 5;

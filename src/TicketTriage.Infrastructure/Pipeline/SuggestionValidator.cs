@@ -19,8 +19,6 @@ internal static class SuggestionValidator
     public const string UnknownService = "UnknownService";
     public const string MissingTeam = "MissingTeam";
     public const string InconsistentTeam = "InconsistentTeam";
-    public const string MissingAssignee = "MissingAssignee";
-    public const string InconsistentAssignee = "InconsistentAssignee";
     public const string PriorityMismatch = "PriorityMismatch";
     public const string InvalidResolutionStatus = "InvalidResolutionStatus";
     public const string EmptyComment = "EmptyComment";
@@ -80,14 +78,14 @@ internal static class SuggestionValidator
         }
     }
 
-    // Team and assignee must be exactly what the statistics yield for the first service; an unknown service yields none.
+    // The team must be exactly what the statistics yield for the first service; an unknown service yields none.
+    // The assignee is not checked: it comes from the workload, which changes with every suggestion.
     private static void ValidateRouting(TriageSuggestion suggestion, RoutingStatistics statistics, List<string> codes)
     {
         var team = string.Empty;
-        string? assignee = null;
         var known = suggestion.AffectedServices.Count > 0
             && !string.IsNullOrWhiteSpace(suggestion.AffectedServices[0])
-            && statistics.TryGetRoute(suggestion.AffectedServices[0], out team, out assignee);
+            && statistics.TryGetTeam(suggestion.AffectedServices[0], out team);
 
         if (!known)
         {
@@ -103,11 +101,6 @@ internal static class SuggestionValidator
         else if (suggestion.ServiceTeams.Count != 1 || !string.Equals(suggestion.ServiceTeams[0], team, StringComparison.Ordinal))
         {
             codes.Add(InconsistentTeam);
-        }
-
-        if (!string.Equals(suggestion.Assignee, assignee, StringComparison.Ordinal))
-        {
-            codes.Add(assignee is not null && string.IsNullOrWhiteSpace(suggestion.Assignee) ? MissingAssignee : InconsistentAssignee);
         }
     }
 }

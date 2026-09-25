@@ -41,6 +41,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<ISimilarTicketSource, DbSimilarTicketSource>();
         services.TryAddSingleton<ITicketSource, DbTicketSource>();
         services.TryAddSingleton<IRoutingStatisticsSource, RoutingStatisticsProvider>();
+        services.TryAddSingleton<IAssigneeWorkload, AssigneeWorkloadProvider>();
         services.TryAddScoped<IRoutingResolver, StatisticsRoutingResolver>();
 
         services.AddOptions<TriageOptions>()

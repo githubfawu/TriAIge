@@ -68,7 +68,7 @@ flowchart LR
     json[/training file<br/>20k noisy tickets/] --> imp["Import<br/>idempotent (FR-01)"]
     imp --> clean["Clean resolutions<br/>drop templates, 'Problem fixed' (FR-02)"]
     clean --> emb["Embed summary + description<br/>dedupe, cache (FR-03)"]
-    clean --> stats["Routing statistics<br/>service→team, (service,team)→assignee (FR-04)"]
+    clean --> stats["Routing statistics<br/>service→team (FR-04); assignee: least-loaded person"]
     emb --> filt["Filter mismatching resolutions<br/>similarity threshold (FR-05)"]
     emb & stats & filt --> db[(SQLite)]
 ```
@@ -98,7 +98,7 @@ flowchart LR
     t[/Ticket/] --> s1
     s1["1 · Normalize & retrieve<br/>flag empty/suspicious fields,<br/>top-k kNN (cosine)"]
     s2["2 · Classify<br/>work type, affected service<br/>structured output"]
-    s3["3 · Route<br/>team + assignee<br/>from routing statistics"]
+    s3["3 · Route<br/>team from routing statistics,<br/>assignee = fewest tickets"]
     s4["4 · Assess & prioritize<br/>LLM: urgency + impact<br/>code: PriorityMatrix"]
     s5["5 · Draft & validate<br/>resolution + comment (assignee voice),<br/>vocabulary & consistency checks"]
     out[/TriageSuggestion<br/>+ reference ticket keys/]
@@ -119,7 +119,7 @@ flowchart LR
 |---|---|---|---|
 | 1 Normalize & retrieve | `TicketNormalizer` (implemented) + `ISimilarTicketSource` | code (TF-IDF + cosine kNN over `Description`, in memory) | normalize and `DbSimilarTicketSource` implemented ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)); no embeddings / BM25 |
 | 2 Classify | `ITicketClassifier` | LLM, validated against the service catalog (`IServiceCatalogProvider`) / enums | implemented (`LlmTicketClassifier`); `ServiceCatalog` holds the 20 real names |
-| 3 Route | `IRoutingResolver` | code (majority vote over `RoutingStatistics`, ties alphabetical), LLM never invents names | implemented (`StatisticsRoutingResolver`; statistics built once per process, no schema change) |
+| 3 Route | `IRoutingResolver` | code: team by majority vote over `RoutingStatistics`, assignee = person with the fewest tickets (`IAssigneeWorkload`, ties alphabetical); LLM never invents names | implemented (`StatisticsRoutingResolver`; statistics and workload built once per process, no schema change; the pipeline reserves the assignee after each final suggestion) |
 | 4 Assess & prioritize | `ITicketClassifier` + `PriorityMatrix` | LLM (urgency, impact) → **code** (priority) | implemented (urgency + impact come from the same LLM call as step 2; matrix in Core) |
 | 5 Draft & validate | `IResolutionDrafter` + `SuggestionValidator` | LLM draft from cleaned templates → code validation (FR-33) | drafter implemented (`LlmResolutionDrafter`, prompt `drafter-v2`): the Core port `DraftAsync(ticket, classification, routing, similar)` returns `ResolutionDraft(Status, Comment)`; the pipeline sets `TriageSuggestion.ResolutionStatus` and `TriageResult.Resolution` writes it in the lowercase export vocabulary (`done`, `cancelled`, `clarification`, `cannot reproduce`). An unknown model status throws, so retry and fallback apply; the fallback status is the majority of the similar tickets' statuses (ties: summed score, then enum order), else `done`. Validator checks all 7 fields (FR-33): enums, canonical `ServiceCatalog` names, team and assignee equal to the routing statistics for the first service (none for an unknown service), priority = matrix, resolution status, comment. The fallback takes its routing from the same statistics, so it is always consistent |
 | Orchestration | `ITriagePipeline` (analysis only, stream) | code: sequential, timeout, retry, failure log, fallback (FR-34…36) | implemented |
@@ -198,7 +198,7 @@ sequenceDiagram
         D-->>W: tickets
         W->>P: TriageAsync(ticket)
         P->>D: similar tickets (TF-IDF), routing statistics
-        D-->>P: similar tickets, team / assignee votes
+        D-->>P: similar tickets, team votes, assignee workload
         P->>L: classify + assess urgency + impact (structured output)
         L-->>P: work type, services, urgency, impact
         Note over P: route from statistics, priority = PriorityMatrix
@@ -302,6 +302,13 @@ flowchart LR
 
 **Second entry point: Web upload (implemented).** `/upload` in Web follows the same ingest → worker → export path with `TicketOrigin.Challenge`: the page parses the file, ingests via `ITicketIngestor`, polls `IAnalysisMonitor` while the Web `AnalysisWorker` analyses (30 s cycles, batch of 5, so minutes for 20 tickets), and builds `result.json` from the stored suggestions (pending tickets use the fallback). Output is byte-identical to Batch's (shared `ChallengeDocument.WriteAsync`); caps 10 MB / 500 records. Details, options and limitations: [features/upload-frontend](features/upload-frontend/README.md).
 
+**Challenge ticket identity.** Ingest upserts by `(Origin, SourceKey)` (unique index). A record's `Issue key` is its `SourceKey` when present; real challenge files are keyless, so `ChallengeDocument` assigns a **content key**: `#` + the first 16 hex characters of the SHA-256 of the record JSON (`ChallengeDocument.ContentKey`). Consequences:
+
+- Uploading or re-running the **same file** yields the same keys → `Unchanged`, the stored analysis is reused.
+- A **different file** yields different keys → new rows; it never overwrites tickets of an earlier upload (positional `#n` keys used to).
+- **Identical records** (in one file or across files) share one row and one analysis; both output positions get the same suggestion.
+- The position `#n` (`ChallengeDocument.PositionalKey`) is display only. The UI shows stored tickets as `DB-{Id}`; the content key is never written to `result.json`.
+
 **Batch per-run rules:**
 
 - **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket, in input order. A ticket that stays pending or fails does not stop the run.
@@ -313,7 +320,7 @@ flowchart LR
 | Concern | Approach |
 |---|---|
 | Configuration | `Llm` section (`AzureOpenAI` \| `OpenAI` \| `Apertus` \| `Ollama`), AppHost parameters → env vars, secrets in user secrets only. `Triage` section (retry, timeout, stop switch) in appsettings |
-| Observability | OpenTelemetry via ServiceDefaults. LLM calls (`Experimental.Microsoft.Extensions.AI`) show in the dashboard with token usage |
+| Observability | OpenTelemetry via ServiceDefaults. LLM calls (`Experimental.Microsoft.Extensions.AI`) show in the dashboard with token usage. Timing logs (no ticket text): per LLM call (`LlmCallLog`: ms, prompt chars, input/cached/output/reasoning tokens), per ticket (`TriagePipeline`: per-step ms; `AnalysisCycle`: queue wait since ingest, pipeline, save), per cycle, and upload parse/ingest/export. Step and housekeeping lines are Debug, enabled in Web `appsettings.Development.json` |
 | Health | `/health`: `sqlite` + `agent-framework` (ready), `/alive` (live) |
 | Reproducibility | temperature 0, fixed model deployment, prompt version logged (FR-32) |
 | Security | ticket text is untrusted input (prompt injection), model output is validated and never rendered as raw HTML |
@@ -327,10 +334,10 @@ Decided as out of scope for the hackathon. Recorded so they are not mistaken for
 | Reopen, un-reject, re-analyse after a decision | Not supported. Decisions are final. |
 | Embedding model change | No model/version key on vectors. A model change means a full re-import. |
 | Rare services, ties in routing | The analyst decides. No tie-break, no flag. |
-| Inactive team or assignee | Routing statistics come from history and may name someone who has left. Not checked. |
+| Inactive team or assignee | Routing statistics and the workload come from history and may name someone who has left or is absent. Not checked. |
 | Duplicate tickets | Similar tickets are shown as references. No duplicate detection or linking. |
 | Direct database edits | A ticket edited in the database (not through ingest) does not invalidate its suggestion. |
 | Personal data | No PII redaction, retention or region rules beyond the log hygiene of CLAUDE.md. |
 | Non-determinism | Temperature 0 does not guarantee identical output on Azure OpenAI. Not handled. |
-| Upload page (`/upload`) | No authentication (local / hackathon only). No global pending check, so a second tab can upload while earlier tickets are pending. Keyless records are keyed `#n` under the Challenge origin: a different keyless file overwrites earlier `#1..#n` rows and Locked rows export a stale suggestion (the page warns). No per-field length caps on ticket text. See [features/upload-frontend](features/upload-frontend/README.md). |
+| Upload page (`/upload`) | No authentication (local / hackathon only). No global pending check, so a second tab can upload while earlier tickets are pending. No per-field length caps on ticket text. A changed record with a real `Issue key` that is already reviewed is Locked and exports its earlier reviewed suggestion (the page warns). See [features/upload-frontend](features/upload-frontend/README.md). |
 | UI and review details | Merge of concurrent edits, first-opened timing bias, circuit reconnect and analyst identity are not designed yet. |

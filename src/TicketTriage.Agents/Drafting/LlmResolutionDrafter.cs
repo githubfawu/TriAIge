@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using TicketTriage.Agents.Llm;
 using TicketTriage.Agents.Prompting;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
@@ -39,9 +40,13 @@ internal sealed class LlmResolutionDrafter : IResolutionDrafter
     {
         _logger.LogDebug("Drafting resolution for ticket {TicketKey} with prompt {PromptVersion}.", ticket.Key, DraftPrompts.Version);
 
-        var response = await _agent.RunAsync<DraftDto>(
-            DraftPrompts.BuildUserMessage(ticket, classification, routing, similarTickets),
-            cancellationToken: cancellationToken);
+        var message = DraftPrompts.BuildUserMessage(ticket, classification, routing, similarTickets);
+        var response = await LlmCallLog.TimeAsync(
+            _logger,
+            "Drafter",
+            ticket.Key,
+            message.Length,
+            () => _agent.RunAsync<DraftDto>(message, cancellationToken: cancellationToken));
 
         _logger.LogDebug("Drafted comment language: {Language}.", response.Result.Language);
         return response.Result.ToDomain();
