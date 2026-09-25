@@ -179,6 +179,19 @@ public sealed class ReviewPageTests : TriageBunitContext
     }
 
     [Fact]
+    public void FailedTicketWithFallbackSuggestion_IsReviewable_WithRetryOption_PerFR34()
+    {
+        RegisterServices(this, MakeReview(isFailed: true, suggestion: MakeSuggestion() with { DraftComment = null }));
+
+        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
+
+        cut.Markup.Should().Contain("fallback suggestion");
+        cut.FindAll("#review-accept-button").Should().ContainSingle();
+        cut.FindAll("#review-retry-button").Should().ContainSingle();
+        cut.Markup.Should().NotContain("Analysis failed:");
+    }
+
+    [Fact]
     public void FailedTicket_ShowsReasonAndRequeueButton_PerAC11()
     {
         var (_, boardQuery) = RegisterServices(this, MakeReview(isAnalysing: true, isFailed: true));

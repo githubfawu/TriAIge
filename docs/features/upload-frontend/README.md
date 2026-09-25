@@ -20,7 +20,7 @@ flowchart LR
     O --> dl[/result.json download/]
 ```
 
-1. **Parse.** `ChallengeDocument.ReadAsync(Stream)` reads at most 10 MB, accepts an envelope (`records` array) or a plain array, and gives keyless records the key `#n`. Errors are `ChallengeFormatException` with positions and type names only, never ticket values.
+1. **Parse.** `ChallengeDocument.ReadAsync(Stream)` reads at most 10 MB, accepts an envelope (`records` array) or a plain array, and gives keyless records a content key (`#` + 16 hex of the record's SHA-256), so a different file never overwrites an earlier upload. Errors are `ChallengeFormatException` with positions and type names only, never ticket values.
 2. **Ingest.** `ChallengeUploadService.UploadAsync` resolves `ITicketIngestor` from a fresh DI scope (the scoped `DbContext` must not live as long as a circuit) and ingests with `TicketOrigin.Challenge`. Result: counts Created / Updated / Unchanged / Locked (Locked = already reviewed, not re-analysed).
 3. **Wait.** The page polls `GetProgressAsync` (`PeriodicTimer`, `PollIntervalSeconds`). Progress = analysed n of N, pending, fallbacks. The worker analyses in cycles (`Analysis:IntervalSeconds` = 30, `BatchSize` = 5), so 20 tickets take a few minutes, depending on LLM latency.
 4. **Export.** When nothing is pending, or the user clicks "Stop waiting", or the wait times out, or the worker is not running, `ExportAsync` builds `result.json` from the stored suggestions. Tickets without a stored suggestion get the deterministic fallback (`IFallbackSuggestionProvider`), shown as "not analysed".
@@ -96,7 +96,7 @@ Manual check:
 |---|---|
 | `Infrastructure.Tests/ChallengeDocumentStreamTests`, `ChallengeResultBuilderTests`, `WorkerLivenessTests` | stream parsing, errors without values, result building, fallback once per id, liveness |
 | `Batch.Tests/ChallengeDocumentTests` | existing Batch assertions via `ChallengeFile`, unchanged |
-| `Web.Tests/ChallengeUploadServiceTests` (new project, fakes) | 20 keyless records -> `#1..#20` as Challenge, array input, invalid/empty/oversized/IO error, no values in messages, re-upload counts, duplicate keys, Starting/NotRunning/TimedOut, export fallback, output equals writer output, ingestor per scope |
+| `Web.Tests/ChallengeUploadServiceTests` (new project, fakes) | 20 keyless records -> 20 distinct content keys as Challenge, a different keyless file creates new tickets, array input, invalid/empty/oversized/IO error, no values in messages, re-upload counts, duplicate keys, Starting/NotRunning/TimedOut, export fallback, output equals writer output, ingestor per scope |
 
 Not covered: `Upload.razor` (no bUnit test), the JS download, a real end-to-end run with the LLM.
 
@@ -106,7 +106,7 @@ Not covered: `Upload.razor` (no bUnit test), the JS download, a real end-to-end 
 |---|---|
 | a | `/upload` has no authentication. The app is local / hackathon only. |
 | b | A second browser tab or circuit can upload while earlier tickets are still pending. There is no global pending check (`IAnalysisMonitor` has no such query). |
-| c | Positional-key collision: keyless records are keyed `#n` under the Challenge origin. A different keyless file overwrites the earlier `#1..#n` rows, and Locked rows export a stale suggestion. The page shows a warning when Locked > 0. |
+| c | ~~Positional-key collision~~ fixed: keyless records are keyed by content hash, not `#n`. Remaining: a changed record with a real `Issue key` that is already reviewed is Locked and exports the earlier reviewed suggestion; the page warns when Locked > 0. |
 | d | No per-field length caps on ticket text (only the 10 MB / 500 record caps). |
 | e | `Upload.razor` has no bUnit test; only the service is tested. |
 | f | The worker-status calculation in `ChallengeUploadService` duplicates the wait logic in `BatchRunner` (only the heartbeat check `WorkerLiveness` is shared). |

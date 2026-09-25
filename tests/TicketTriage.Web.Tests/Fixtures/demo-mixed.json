@@ -1,0 +1,85 @@
+[
+  {
+    "Issue key": "MIX-01",
+    "Summary": "Trading platform order entry freezes for all equity traders",
+    "Description": "Since 08:30 the order entry screen of the trading platform freezes after submitting an order. All equity traders in Zurich and Geneva are affected; orders cannot be placed.",
+    "Work type": "Service Request",
+    "Affected Business or IT Services": [ "Outlook & Email" ],
+    "Service Team(s)": [ "Service Desk" ],
+    "Urgency": "Low",
+    "Impact": "Minor"
+  },
+  {
+    "Issue key": "MIX-02",
+    "Summary": "NAV calculation for Luxembourg funds not finished",
+    "Description": "The nightly NAV calculation for all Luxembourg UCITS funds did not complete. Fund prices cannot be published to clients this morning.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": [ "NAV Calculation" ],
+    "Urgency": "Critical",
+    "Impact": "Major"
+  },
+  {
+    "Issue key": "MIX-03",
+    "Summary": "Please grant SharePoint access to the new compliance folder",
+    "Description": "New compliance analyst needs read and write access to the Compliance/2026 folder on SharePoint.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": [ "Regulatory Reporting" ],
+    "Urgency": "Critical",
+    "Impact": "Significant"
+  },
+  {
+    "Issue key": "MIX-04",
+    "Summary": "Rimes data feed delivered no prices for European equities",
+    "Description": "The Rimes feed file for European equities arrived empty at 06:00. Pricing and risk runs depending on it are blocked."
+  },
+  {
+    "Issue key": "MIX-05",
+    "Summary": "Outlook signature missing after laptop replacement",
+    "Description": "After receiving a new laptop my e-mail signature is gone. Low priority, just want it restored.",
+    "Work type": "Service Request",
+    "Affected Business or IT Services": [ "Outlook & Email" ],
+    "Urgency": "Low",
+    "Impact": "Minor"
+  },
+  {
+    "Issue key": "MIX-06",
+    "Summary": "Corporate actions: dividend events missing for Swiss equities",
+    "Description": "Dividend events for several SMI stocks were not loaded into the corporate actions system. Settlement of client dividends at risk.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": [ "Tax Reporting" ],
+    "Service Team(s)": [ "Client Services" ],
+    "Urgency": "Lowest",
+    "Impact": "No Impact"
+  },
+  {
+    "Issue key": "MIX-07",
+    "Summary": "Client portal login loop on Safari",
+    "Description": "Institutional clients using Safari are redirected back to the login page after entering their credentials."
+  },
+  {
+    "Issue key": "MIX-08",
+    "Summary": "Request: new laptop for analyst starting Monday",
+    "Description": "Please prepare a standard laptop and accounts for a new portfolio analyst starting next Monday.",
+    "Work type": "Incident",
+    "Urgency": "High",
+    "Impact": "Major"
+  },
+  {
+    "Issue key": "MIX-09",
+    "Summary": "Cash management dashboard very slow in the morning",
+    "Description": "Between 08:00 and 09:00 the cash management dashboard takes more than two minutes to load for the treasury team.",
+    "Work type": "Incident",
+    "Affected Business or IT Services": [ "Cash Management" ],
+    "Urgency": "Medium",
+    "Impact": "Moderate"
+  },
+  {
+    "Issue key": "MIX-10",
+    "Summary": "Trade matching shows duplicate entries after overnight batch",
+    "Description": "The trade matching report lists every Luxembourg trade twice since the overnight batch. Confirmations are blocked.",
+    "Work type": "Service Request",
+    "Affected Business or IT Services": [ "SharePoint & File Storage" ],
+    "Urgency": "Lowest",
+    "Impact": "Minor"
+  }
+]

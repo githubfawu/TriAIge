@@ -302,6 +302,13 @@ flowchart LR
 
 **Second entry point: Web upload (implemented).** `/upload` in Web follows the same ingest → worker → export path with `TicketOrigin.Challenge`: the page parses the file, ingests via `ITicketIngestor`, polls `IAnalysisMonitor` while the Web `AnalysisWorker` analyses (30 s cycles, batch of 5, so minutes for 20 tickets), and builds `result.json` from the stored suggestions (pending tickets use the fallback). Output is byte-identical to Batch's (shared `ChallengeDocument.WriteAsync`); caps 10 MB / 500 records. Details, options and limitations: [features/upload-frontend](features/upload-frontend/README.md).
 
+**Challenge ticket identity.** Ingest upserts by `(Origin, SourceKey)` (unique index). A record's `Issue key` is its `SourceKey` when present; real challenge files are keyless, so `ChallengeDocument` assigns a **content key**: `#` + the first 16 hex characters of the SHA-256 of the record JSON (`ChallengeDocument.ContentKey`). Consequences:
+
+- Uploading or re-running the **same file** yields the same keys → `Unchanged`, the stored analysis is reused.
+- A **different file** yields different keys → new rows; it never overwrites tickets of an earlier upload (positional `#n` keys used to).
+- **Identical records** (in one file or across files) share one row and one analysis; both output positions get the same suggestion.
+- The position `#n` (`ChallengeDocument.PositionalKey`) is display only. The UI shows stored tickets as `DB-{Id}`; the content key is never written to `result.json`.
+
 **Batch per-run rules:**
 
 - **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket, in input order. A ticket that stays pending or fails does not stop the run.
@@ -313,7 +320,7 @@ flowchart LR
 | Concern | Approach |
 |---|---|
 | Configuration | `Llm` section (`AzureOpenAI` \| `OpenAI` \| `Apertus` \| `Ollama`), AppHost parameters → env vars, secrets in user secrets only. `Triage` section (retry, timeout, stop switch) in appsettings |
-| Observability | OpenTelemetry via ServiceDefaults. LLM calls (`Experimental.Microsoft.Extensions.AI`) show in the dashboard with token usage |
+| Observability | OpenTelemetry via ServiceDefaults. LLM calls (`Experimental.Microsoft.Extensions.AI`) show in the dashboard with token usage. Timing logs (no ticket text): per LLM call (`LlmCallLog`: ms, prompt chars, input/cached/output/reasoning tokens), per ticket (`TriagePipeline`: per-step ms; `AnalysisCycle`: queue wait since ingest, pipeline, save), per cycle, and upload parse/ingest/export. Step and housekeeping lines are Debug, enabled in Web `appsettings.Development.json` |
 | Health | `/health`: `sqlite` + `agent-framework` (ready), `/alive` (live) |
 | Reproducibility | temperature 0, fixed model deployment, prompt version logged (FR-32) |
 | Security | ticket text is untrusted input (prompt injection), model output is validated and never rendered as raw HTML |
@@ -332,5 +339,5 @@ Decided as out of scope for the hackathon. Recorded so they are not mistaken for
 | Direct database edits | A ticket edited in the database (not through ingest) does not invalidate its suggestion. |
 | Personal data | No PII redaction, retention or region rules beyond the log hygiene of CLAUDE.md. |
 | Non-determinism | Temperature 0 does not guarantee identical output on Azure OpenAI. Not handled. |
-| Upload page (`/upload`) | No authentication (local / hackathon only). No global pending check, so a second tab can upload while earlier tickets are pending. Keyless records are keyed `#n` under the Challenge origin: a different keyless file overwrites earlier `#1..#n` rows and Locked rows export a stale suggestion (the page warns). No per-field length caps on ticket text. See [features/upload-frontend](features/upload-frontend/README.md). |
+| Upload page (`/upload`) | No authentication (local / hackathon only). No global pending check, so a second tab can upload while earlier tickets are pending. No per-field length caps on ticket text. A changed record with a real `Issue key` that is already reviewed is Locked and exports its earlier reviewed suggestion (the page warns). See [features/upload-frontend](features/upload-frontend/README.md). |
 | UI and review details | Merge of concurrent edits, first-opened timing bias, circuit reconnect and analyst identity are not designed yet. |

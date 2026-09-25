@@ -190,6 +190,7 @@ Dependencies point one way: Web / Batch → Agents → Infrastructure → Core.
 
 | Document | Content |
 |---|---|
+| [docs/overview.md](docs/overview.md) | High-level overview: what the app does and how, in one page |
 | [docs/requirements.md](docs/requirements.md) | Challenge requirements (FR/NFR IDs, scoring, priority matrix, open questions) |
 | [docs/architecture.md](docs/architecture.md) | Architecture diagrams (Mermaid) and component status (implemented / planned): context, projects, data preparation, triage pipeline, ticket lifecycle, analysis worker, human-in-the-loop |
 | [docs/adr/](docs/adr/) | Architecture Decision Records: [ADR-0001 five-step hybrid pipeline](docs/adr/0001-hybrid-triage-pipeline.md), [ADR-0002 background analysis worker](docs/adr/0002-background-analysis-worker.md) |

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
@@ -22,15 +23,20 @@ public sealed class ChallengeUploadService(
     {
         ArgumentNullException.ThrowIfNull(json);
 
+        var started = Stopwatch.GetTimestamp();
         var document = await ChallengeDocument.ReadAsync(json, cancellationToken);
+        var parseMs = ElapsedMs(started);
 
         var tickets = document.Tickets;
         IReadOnlyList<IngestResult> ingested;
+        var ingestStarted = Stopwatch.GetTimestamp();
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
             var ingestor = scope.ServiceProvider.GetRequiredService<ITicketIngestor>();
             ingested = await ingestor.IngestAsync(tickets, TicketOrigin.Challenge, cancellationToken);
         }
+
+        var ingestMs = ElapsedMs(ingestStarted);
 
         if (ingested.Count != tickets.Count)
         {
@@ -43,8 +49,9 @@ public sealed class ChallengeUploadService(
             ingested.Count(r => r.Outcome == IngestOutcome.Unchanged),
             ingested.Count(r => r.Outcome == IngestOutcome.Locked));
         logger.LogInformation(
-            "Ingested {Count} uploaded tickets ({Created} created, {Updated} updated, {Unchanged} unchanged, {Locked} locked).",
-            ingested.Count, counts.Created, counts.Updated, counts.Unchanged, counts.Locked);
+            "Ingested {Count} uploaded tickets ({Created} created, {Updated} updated, {Unchanged} unchanged, {Locked} locked); "
+                + "parse {ParseMs} ms, ingest {IngestMs} ms.",
+            ingested.Count, counts.Created, counts.Updated, counts.Unchanged, counts.Locked, parseMs, ingestMs);
 
         return new UploadSession(
             document,
@@ -82,12 +89,23 @@ public sealed class ChallengeUploadService(
     {
         ArgumentNullException.ThrowIfNull(session);
 
+        var started = Stopwatch.GetTimestamp();
         var states = await monitor.GetStatesAsync([.. session.TicketIds.Distinct()], cancellationToken);
         var built = await ChallengeResults.BuildAsync(session.TicketIds, states, fallbackProvider, cancellationToken);
         var output = session.Document.ToOutput([.. built.Rows.Select(r => r.Result)]);
 
         await using var buffer = new MemoryStream();
         await ChallengeDocument.WriteAsync(output, buffer, cancellationToken);
+        logger.LogInformation(
+            "Exported {Count} uploaded tickets in {ElapsedMs} ms ({NotAnalysed} not analysed, {Fallbacks} fallbacks); "
+                + "{SinceUploadMs} ms since upload.",
+            built.Rows.Count,
+            ElapsedMs(started),
+            built.NotAnalysed,
+            built.Fallbacks,
+            (long)(timeProvider.GetUtcNow() - session.StartedAt).TotalMilliseconds);
         return new UploadExport(built.Rows, buffer.ToArray(), built.Fallbacks, built.NotAnalysed);
     }
+
+    private static long ElapsedMs(long started) => (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 }
