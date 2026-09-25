@@ -60,7 +60,23 @@ public class RealAgentEvaluationTests
         using var chatClient = ChatClientFactory.Create(options);
         var classifier = new LlmTicketClassifier(chatClient, new CoreServiceCatalogProvider(), NullLogger<LlmTicketClassifier>.Instance);
         var drafter = new LlmResolutionDrafter(chatClient, NullLogger<LlmResolutionDrafter>.Instance);
-        var judge = new ChatClientAgent(chatClient, new ChatClientAgentOptions
+
+        // The judge must not be the same model as classifier/drafter (self-preference bias: a model rating its own
+        // output leniently). Use the other configured provider when a second key is available; otherwise fall back
+        // to the same client and say so loudly in the report instead of hiding the bias risk.
+        var (judgeProvider, judgeKey) = ResolveJudgeProvider(provider);
+        var independentJudge = judgeKey is not null;
+        LlmOptions? judgeOptions = null;
+        if (independentJudge)
+        {
+            judgeOptions = new LlmOptions { Provider = judgeProvider };
+            judgeOptions.Apertus.ApiKey = judgeKey;
+            judgeOptions.OpenAI.ApiKey = judgeKey;
+        }
+
+        using var secondaryChatClient = judgeOptions is not null ? ChatClientFactory.Create(judgeOptions) : null;
+        var judgeChatClient = secondaryChatClient ?? chatClient;
+        var judge = new ChatClientAgent(judgeChatClient, new ChatClientAgentOptions
         {
             Name = "Judge",
             ChatOptions = new ChatOptions
@@ -80,7 +96,11 @@ public class RealAgentEvaluationTests
         var workTypeCorrect = 0;
         var serviceCorrect = 0;
         var judgeScores = new List<int>();
-        output.WriteLine($"Evaluating {sample.Count} real tickets against provider {provider} (sampled from {usable.Count} usable resolved tickets).");
+        output.WriteLine($"Evaluating {sample.Count} real tickets: classifier/drafter = {provider} (sampled from {usable.Count} usable resolved tickets).");
+        output.WriteLine(independentJudge
+            ? $"Judge = {judgeProvider} (independent provider, avoids self-preference bias)."
+            : $"WARNING: no second provider key available - judge also runs on {provider}, same model as classifier/drafter. "
+                + "Judge scores below are at risk of self-preference bias (a model rating its own output leniently) and should be read with caution.");
         output.WriteLine(new string('-', 110));
 
         var index = 0;
@@ -121,7 +141,8 @@ public class RealAgentEvaluationTests
         output.WriteLine(new string('-', 110));
         output.WriteLine($"WorkType accuracy: {workTypeCorrect}/{sample.Count} ({(double)workTypeCorrect / sample.Count:P0})");
         output.WriteLine($"Affected-service accuracy (first service): {serviceCorrect}/{sample.Count} ({(double)serviceCorrect / sample.Count:P0})");
-        output.WriteLine($"Judge score: avg {judgeScores.Average():F1}/5, min {judgeScores.Min()}, max {judgeScores.Max()}");
+        output.WriteLine($"Judge score ({(independentJudge ? judgeProvider.ToString() : $"{provider}, SAME as generator - biased")}): "
+            + $"avg {judgeScores.Average():F1}/5, min {judgeScores.Min()}, max {judgeScores.Max()}");
         output.WriteLine($"Sample size n={sample.Count}: a spot-check, not a statistically significant measurement (see SignalMeasurementTests for that).");
 
         sample.Should().NotBeEmpty();
@@ -138,6 +159,30 @@ public class RealAgentEvaluationTests
 
         var openAiKey = Environment.GetEnvironmentVariable("Llm__OpenAI__ApiKey");
         return !string.IsNullOrWhiteSpace(openAiKey) ? (LlmProvider.OpenAI, openAiKey) : (default, null);
+    }
+
+    /// <summary>The provider NOT used for classify/draft, so the judge never rates its own model's output.</summary>
+    private static (LlmProvider Provider, string? Key) ResolveJudgeProvider(LlmProvider primary)
+    {
+        if (primary != LlmProvider.Apertus)
+        {
+            var apertusKey = Environment.GetEnvironmentVariable("Llm__Apertus__ApiKey");
+            if (!string.IsNullOrWhiteSpace(apertusKey))
+            {
+                return (LlmProvider.Apertus, apertusKey);
+            }
+        }
+
+        if (primary != LlmProvider.OpenAI)
+        {
+            var openAiKey = Environment.GetEnvironmentVariable("Llm__OpenAI__ApiKey");
+            if (!string.IsNullOrWhiteSpace(openAiKey))
+            {
+                return (LlmProvider.OpenAI, openAiKey);
+            }
+        }
+
+        return (primary, null);
     }
 
     private static string? FindTrainingFile()
