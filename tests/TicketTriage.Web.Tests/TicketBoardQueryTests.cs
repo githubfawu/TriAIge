@@ -81,6 +81,37 @@ public sealed class TicketBoardQueryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetRowsAsync_ApprovedWithEdits_ShowsFinalValues_WithPriorityFromMatrix()
+    {
+        var ct = Xunit.TestContext.Current.CancellationToken;
+        await using (var db = _database.CreateContext())
+        {
+            var approved = NewTicket("approved", TicketOrigin.Challenge, statusId: 4);
+            var pending = NewTicket("pending", TicketOrigin.Challenge, statusId: 1);
+            db.Tickets.AddRange(approved, pending);
+            await db.SaveChangesAsync(ct);
+
+            var suggestion = new TriageSuggestion { TicketKey = "k", WorkType = WorkType.Incident, Urgency = Urgency.Medium, Impact = Impact.Moderate };
+            db.Suggestions.AddRange(
+                SuggestionMapper.ToEntity(approved.Id, suggestion, DateTime.UtcNow),
+                SuggestionMapper.ToEntity(pending.Id, suggestion, DateTime.UtcNow));
+            db.SuggestionEdits.AddRange(
+                new SuggestionEditEntity { TicketId = approved.Id, Field = nameof(SuggestionField.Urgency), AiValue = "Medium", FinalValue = "Critical", EditedAtUtc = DateTime.UtcNow },
+                new SuggestionEditEntity { TicketId = approved.Id, Field = nameof(SuggestionField.Impact), AiValue = "Moderate", FinalValue = "Major", EditedAtUtc = DateTime.UtcNow });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var rows = await CreateQuery().GetRowsAsync(ct);
+
+        var approvedRow = rows.Single(r => r.Summary == "approved");
+        approvedRow.IsFinal.Should().BeTrue();
+        approvedRow.SuggestedPriority.Should().Be("Highest");
+        var pendingRow = rows.Single(r => r.Summary == "pending");
+        pendingRow.IsFinal.Should().BeFalse();
+        pendingRow.SuggestedPriority.Should().Be("Medium");
+    }
+
+    [Fact]
     public async Task GetNextPendingIdAsync_FindsAnotherReviewingOrReviewedTicket_ExcludingSelf_PerFR19()
     {
         var ct = Xunit.TestContext.Current.CancellationToken;

@@ -29,7 +29,7 @@
                 @context.Item.WorkType
                 @if (context.Item.SuggestedWorkType is { } suggested)
                 {
-                    <MudText Typo="Typo.caption" Class="d-block">suggested: @suggested</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block">@(context.Item.IsFinal ? "final" : "suggested"): @suggested</MudText>
                 }
             </CellTemplate>
         </TemplateColumn>
@@ -38,7 +38,7 @@
                 @context.Item.Priority
                 @if (context.Item.SuggestedPriority is { } suggestedPriority)
                 {
-                    <MudText Typo="Typo.caption" Class="d-block">suggested: @suggestedPriority</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block">@(context.Item.IsFinal ? "final" : "suggested"): @suggestedPriority</MudText>
                 }
             </CellTemplate>
         </TemplateColumn>

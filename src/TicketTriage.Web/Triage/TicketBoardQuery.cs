@@ -17,7 +17,8 @@ public sealed record TicketBoardRow(
     string Priority,
     string? SuggestedPriority,
     TicketDisplayState State,
-    string? FailureReason);
+    string? FailureReason,
+    bool IsFinal = false);
 
 public interface ITicketBoardQuery
 {
@@ -70,6 +71,16 @@ public sealed class TicketBoardQuery(
             .Where(s => ids.Contains(s.TicketId))
             .ToDictionaryAsync(s => s.TicketId, cancellationToken);
 
+        // Decided tickets show the final values (suggestion + analyst edits), as EfReviewService.Apply does.
+        var decidedIds = tickets.Where(t => t.StatusId is StatusHumanApproved or StatusHumanRejected).Select(t => t.Id).ToList();
+        var edits = decidedIds.Count == 0
+            ? []
+            : await db.SuggestionEdits.AsNoTracking()
+                .Where(e => decidedIds.Contains(e.TicketId))
+                .Select(e => new { e.TicketId, e.Field, e.FinalValue })
+                .ToListAsync(cancellationToken);
+        var editsByTicket = edits.ToLookup(e => e.TicketId);
+
         var retryCount = triageOptions.Value.RetryCount;
         var rows = new List<TicketBoardRow>(tickets.Count);
         var failedIds = new List<int>();
@@ -85,17 +96,40 @@ public sealed class TicketBoardQuery(
             var original = ToTicket(ticket.Id, ticket.SourcePayload, ticket.Summary, ticket.Description);
             suggestions.TryGetValue(ticket.Id, out var suggestion);
 
+            var isFinal = state is TicketDisplayState.Approved && suggestion is not null;
+            var workType = suggestion?.WorkType;
+            var urgency = suggestion?.Urgency;
+            var impact = suggestion?.Impact;
+            if (isFinal)
+            {
+                foreach (var edit in editsByTicket[ticket.Id])
+                {
+                    if (edit.FinalValue is not { } value)
+                    {
+                        continue;
+                    }
+
+                    switch (edit.Field)
+                    {
+                        case nameof(SuggestionField.WorkType) when Enum.TryParse<WorkType>(value, out var w): workType = w; break;
+                        case nameof(SuggestionField.Urgency) when Enum.TryParse<Urgency>(value, out var u): urgency = u; break;
+                        case nameof(SuggestionField.Impact) when Enum.TryParse<Impact>(value, out var i): impact = i; break;
+                    }
+                }
+            }
+
             rows.Add(new TicketBoardRow(
                 ticket.Id,
                 ticket.Version,
                 SuggestionMapper.TicketKey(ticket.Id),
                 ticket.Summary,
                 original.WorkType ?? "—",
-                suggestion is null ? null : TriageVocabulary.ToJsonName(suggestion.WorkType),
+                workType is { } wt ? TriageVocabulary.ToJsonName(wt) : null,
                 original.Priority ?? "—",
-                suggestion is null ? null : TriageVocabulary.ToJsonName(suggestion.Priority),
+                urgency is { } ur && impact is { } im ? TriageVocabulary.ToJsonName(PriorityMatrix.Resolve(ur, im)) : null,
                 state,
-                null));
+                null,
+                isFinal));
         }
 
         if (failedIds.Count > 0)
