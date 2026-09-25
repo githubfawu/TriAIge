@@ -135,8 +135,12 @@ public partial class Review : IAsyncDisposable
                     continue;
                 }
 
-                await LoadAsync();
-                await InvokeAsync(StateHasChanged);
+                // Runs on the renderer's context so the form isn't swapped mid-render; keeps the analyst's unsaved edits.
+                await InvokeAsync(async () =>
+                {
+                    await LoadAsync(preserveForm: true);
+                    StateHasChanged();
+                });
             }
         }
         catch (OperationCanceledException)
@@ -145,11 +149,20 @@ public partial class Review : IAsyncDisposable
         }
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(bool preserveForm = false)
     {
+        var wasPending = _state == TicketDisplayState.Pending;
         _review = await ReviewService.OpenAsync(Id, _cts.Token);
         _state = DeriveState(_review);
         _failureReason = _review is { IsFailed: true } ? await BoardQuery.GetLatestFailureReasonAsync(Id, _cts.Token) : null;
+
+        // A background refresh must never discard edits in progress; the form is only rebuilt when the ticket
+        // changes state (e.g. analysis finished, or it was decided in another tab).
+        if (preserveForm && wasPending && _state == TicketDisplayState.Pending && _form is not null)
+        {
+            return;
+        }
+
         _form = _review?.EffectiveSuggestion is { } effective ? new ReviewFormModel(ReviewFormSnapshot.From(effective)) : null;
     }
 
