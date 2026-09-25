@@ -531,27 +531,23 @@ body {
 .tt-grid.mud-table {
     border: 1px solid #e5e7eb;
     border-radius: 10px;
-    overflow: hidden;
+    overflow: clip;
     background: #ffffff;
 }
 
 .tt-page .tt-grid .mud-table-container {
-    max-height: calc(100vh - 290px);
     border: 0;
     border-radius: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
+    overflow: visible;
 }
 
 .tt-tickets-grid .mud-table-root {
-    min-width: 900px;
     table-layout: auto;
 }
 
 .tt-grid .mud-table-head .mud-table-cell {
     position: sticky;
-    top: 0;
+    top: var(--mud-appbar-height, 56px);
     z-index: 1;
     height: 38px;
     padding-top: 0;
@@ -577,7 +573,7 @@ body {
 }
 
 .tt-col-key {
-    width: 110px;
+    width: 1%;
     font-variant-numeric: tabular-nums;
     color: #374151;
     font-weight: 500;
@@ -586,7 +582,7 @@ body {
 .tt-col-summary {
     width: 100%;
     max-width: 0;
-    min-width: 260px;
+    min-width: 160px;
 }
 
 .tt-ellipsis {
@@ -814,26 +810,23 @@ body {
 
 .tt-facts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(140px, auto) minmax(0, 1fr));
-    gap: 0;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 14px 20px;
     margin: 0;
+    padding-top: 14px;
     border-top: 1px solid #eef0f3;
 }
 
-.tt-facts dt,
-.tt-facts dd {
-    margin: 0;
-    padding: 9px 0;
-    border-bottom: 1px solid #eef0f3;
-    font-size: 0.8125rem;
-}
-
 .tt-facts dt {
+    margin: 0 0 2px;
+    font-size: 0.72rem;
     color: #6b7280;
 }
 
 .tt-facts dd {
-    padding-right: 16px;
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 500;
     color: #111827;
     overflow-wrap: anywhere;
 }
@@ -1082,16 +1075,19 @@ body {
 
 @media (max-width: 1100px) {
     .tt-detail {
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 16px;
+    }
+}
+
+@media (max-width: 760px) {
+    .tt-detail {
         grid-template-columns: minmax(0, 1fr);
     }
 
     .tt-side {
         position: static;
         order: -1;
-    }
-
-    .tt-facts {
-        grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
     }
 }
 
@@ -1147,8 +1143,718 @@ body {
     font-size: 0.85rem;
 }
 
-/* The table takes the remaining viewport height; the page itself never scrolls vertically. */
-.tt-page .tt-tickets-page .tt-grid .mud-table-container,
-.tt-tickets-page .tt-tickets-grid .mud-table-container {
-    max-height: calc(100vh - 56px - 40px - 48px - 150px);
+
+
+/* Search and filters share one row; the filter strip scrolls sideways instead of wrapping. */
+.tt-toolbar-single {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+
+.tt-toolbar-single .tt-search {
+    flex: 1 1 240px;
+    max-width: 320px;
+}
+
+.tt-toolbar-single .tt-filters {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+/* Hide the least important columns before the table would overflow; only phones scroll sideways. */
+@media (max-width: 900px) {
+    .tt-tickets-grid .tt-col-type {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .tt-toolbar-single {
+        flex-wrap: wrap;
+    }
+
+    .tt-toolbar-single .tt-search {
+        flex: 1 1 100%;
+    }
+
+    .tt-page .tt-grid .mud-table-container {
+        overflow-x: auto;
+    }
+
+    .tt-tickets-grid .mud-table-root {
+        min-width: 560px;
+    }
+}
+
+/* Labels and owner badges never wrap inside the narrow side panel. */
+.tt-field-label > span:first-child,
+.owner-badge {
+    white-space: nowrap;
+}
+
+.tt-field-row .tt-field-label {
+    gap: 4px;
+}
+
+/* ---------- Dashboard (reference: KPI strip with hairline dividers, panels in one surface separated by lines) ---------- */
+.tt-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tt-dash {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #e5e7eb;
+}
+
+.tt-dash > * {
+    background: #ffffff;
+}
+
+.tt-dash-wide {
+    grid-column: 1 / -1;
+}
+
+.tt-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tt-kpi {
+    padding: 16px 20px;
+    min-width: 0;
+}
+
+.tt-kpi + .tt-kpi {
+    border-left: 1px solid #eef0f3;
+}
+
+.tt-kpi-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #6b7280;
+}
+
+.tt-kpi-value {
+    margin: 4px 0 2px;
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    color: #111827;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tt-kpi-value-sm {
+    font-size: 1.15rem;
+    line-height: 1.75;
+}
+
+.tt-kpi-sub {
+    font-size: 0.72rem;
+    color: #9ca3af;
+}
+
+.tt-panel {
+    padding: 16px 20px 18px;
+    min-width: 0;
+}
+
+.tt-panel-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.tt-panel-hint {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: #9ca3af;
+}
+
+/* Status share: one bar split into segments (2px surface gap between fills), legend = clickable counts. */
+.tt-status-bar {
+    display: flex;
+    gap: 2px;
+    height: 10px;
+    margin-bottom: 14px;
+}
+
+.tt-status-seg {
+    min-width: 6px;
+    border-radius: 4px;
+}
+
+.tt-status-empty {
+    background: #eef0f3;
+}
+
+.tt-state-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.tt-state-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid #eef0f3;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.tt-state-link:hover {
+    border-color: #22a55b;
+    background: #f7fdf9;
+}
+
+.tt-state-count {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #111827;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Edits per field: one-hue horizontal bars, value labelled directly. */
+.tt-bars {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.tt-bar-row {
+    display: grid;
+    grid-template-columns: 118px minmax(0, 1fr) 28px;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.75rem;
+}
+
+.tt-bar-label {
+    color: #4b5563;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tt-bar-track {
+    height: 8px;
+    border-radius: 4px;
+    background: #f1f3f5;
+    overflow: hidden;
+}
+
+.tt-bar-fill {
+    display: block;
+    height: 100%;
+    min-width: 0;
+    border-radius: 4px;
+    background: #22a55b;
+}
+
+.tt-bar-value {
+    text-align: right;
+    font-weight: 600;
+    color: #111827;
+    font-variant-numeric: tabular-nums;
+}
+
+/* System health as compact rows. */
+.tt-health {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.tt-health-row {
+    padding: 10px 12px;
+    border: 1px solid #eef0f3;
+    border-radius: 8px;
+    min-width: 0;
+}
+
+.tt-health-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.tt-health-pill {
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 1.7;
+}
+
+.tt-health-ok { color: #15803d; background: #dcfce7; }
+.tt-health-warn { color: #a16207; background: #fef9c3; }
+.tt-health-bad { color: #b91c1c; background: #fee2e2; }
+.tt-health-unknown { color: #4b5563; background: #f3f4f6; }
+
+.tt-health-desc {
+    margin-top: 4px;
+    font-size: 0.78rem;
+    color: #4b5563;
+}
+
+.tt-health-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    color: #9ca3af;
+}
+
+.tt-health-overall {
+    margin-top: 10px;
+    font-size: 0.72rem;
+    color: #9ca3af;
+}
+
+@media (max-width: 900px) {
+    .tt-dash {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tt-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tt-kpi:nth-child(3) {
+        border-left: 0;
+    }
+
+    .tt-kpi:nth-child(n + 3) {
+        border-top: 1px solid #eef0f3;
+    }
+
+    .tt-health {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ---------- Ticket table: faint column dividers like the reference ---------- */
+.tt-tickets-grid .mud-table-cell + .mud-table-cell {
+    border-left: 1px solid #f3f4f6;
+}
+
+.tt-tickets-grid .tt-col-chevron {
+    border-left: 0 !important;
+}
+
+/* ---------- Upload ---------- */
+.tt-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 36px 24px;
+    border: 1.5px dashed #d1d5db;
+    border-radius: 12px;
+    background: #f9fafb;
+    text-align: center;
+}
+
+.tt-dropzone-icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.tt-dropzone-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.tt-dropzone-text {
+    max-width: 520px;
+    margin-bottom: 6px;
+    font-size: 0.8125rem;
+    color: #6b7280;
+}
+
+.tt-soft-card.mud-paper {
+    border-color: #e5e7eb;
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+.tt-upload-grid .mud-table-body .mud-table-cell,
+.tt-upload-grid .mud-table-head .mud-table-cell {
+    white-space: nowrap;
+    font-size: 0.78rem;
+}
+
+/* Upload result has many columns: it scrolls sideways inside its frame instead of being clipped. */
+.tt-page .tt-upload-grid .mud-table-container {
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.tt-upload-grid .tt-col-summary {
+    min-width: 220px;
+    max-width: 320px;
+}
+
+/* Sticky headers only work against the page scroll; inside a sideways-scrolling frame they would offset
+   by the app-bar height and cover the first row, so they stay static there. */
+.tt-upload-grid .mud-table-head .mud-table-cell {
+    position: static;
+}
+
+@media (max-width: 640px) {
+    .tt-tickets-grid .mud-table-head .mud-table-cell {
+        position: static;
+    }
+}
+
+/* ---------- Review guidance: overview + form-style field states (missing / changed by agent / edited) ---------- */
+.tt-attention {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid #fecaca;
+    border-radius: 999px;
+    background: #fef2f2;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #b91c1c;
+    white-space: nowrap;
+}
+
+.tt-attention .mud-icon-root {
+    font-size: 1rem;
+}
+
+.tt-overview .tt-card-title {
+    margin-bottom: 10px;
+}
+
+.tt-overview-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.tt-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    color: #4b5563;
+    background: #f3f4f6;
+    white-space: nowrap;
+}
+
+.tt-stat b {
+    font-weight: 700;
+    color: #111827;
+}
+
+.tt-stat-missing { background: #fef2f2; color: #b91c1c; }
+.tt-stat-missing b { color: #b91c1c; }
+.tt-stat-changed { background: #fffbeb; color: #b45309; }
+.tt-stat-changed b { color: #b45309; }
+.tt-stat-edited { background: #f0fdf4; color: #15803d; }
+.tt-stat-edited b { color: #15803d; }
+
+.tt-diff {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    table-layout: fixed;
+}
+
+.tt-diff th {
+    padding: 0 8px 6px;
+    font-size: 0.68rem;
+    font-weight: 500;
+    color: #9ca3af;
+    text-align: left;
+    border-bottom: 1px solid #eef0f3;
+}
+
+.tt-diff th:nth-child(1) { width: 26%; }
+.tt-diff th:nth-child(2) { width: 24%; }
+.tt-diff th:nth-child(3) { width: 22px; }
+.tt-diff th:nth-child(5) { width: 104px; }
+
+.tt-diff td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f3f4f6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.tt-diff tr:last-child td {
+    border-bottom: 0;
+}
+
+.tt-diff-name {
+    color: #4b5563;
+    font-weight: 500;
+}
+
+.tt-diff-orig {
+    color: #9ca3af;
+}
+
+.tt-diff-arrow {
+    padding: 0 !important;
+    color: #d1d5db;
+    text-align: center;
+}
+
+.tt-diff-new {
+    color: #111827;
+    font-weight: 500;
+}
+
+.tt-diff-changed td { background: #fffdf5; }
+.tt-diff-missing td { background: #fff8f8; }
+.tt-diff-edited td { background: #f7fdf9; }
+.tt-diff-missing .tt-diff-new { color: #b91c1c; }
+
+.tt-status {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 1.6;
+}
+
+.tt-status-missing { color: #b91c1c; background: #fee2e2; }
+.tt-status-changed { color: #b45309; background: #fef3c7; }
+.tt-status-edited { color: #15803d; background: #dcfce7; }
+.tt-status-ok { color: #6b7280; background: #f3f4f6; }
+
+/* Side panel: grouped, compact form. */
+.tt-group {
+    margin: 4px 0 -4px;
+    padding-top: 10px;
+    border-top: 1px solid #eceff3;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #9ca3af;
+}
+
+.tt-fields > .tt-group:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.tt-side .tt-fields {
+    gap: 10px;
+}
+
+.tt-side .tt-field-label {
+    margin-bottom: 4px;
+}
+
+.tt-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    line-height: 1.35;
+}
+
+.tt-hint .mud-icon-root {
+    flex: none;
+    font-size: 0.9rem;
+}
+
+.tt-hint-missing { color: #b91c1c; font-weight: 600; }
+.tt-hint-changed { color: #b45309; }
+.tt-hint-edited { color: #15803d; }
+
+/* Input frame colours by state (the old label dot is replaced by these). */
+.tt-field-changed .tt-field-label > span:first-child::after {
+    content: none;
+}
+
+.tt-side .tt-fs-missing .mud-input.mud-input-outlined {
+    background: #fff8f8;
+}
+
+.tt-side .tt-fs-missing .mud-input-outlined-border {
+    border-color: #f87171 !important;
+    border-width: 1.5px !important;
+}
+
+.tt-side .tt-fs-changed .mud-input.mud-input-outlined {
+    background: #fffdf5;
+}
+
+.tt-side .tt-fs-changed .mud-input-outlined-border {
+    border-color: #fbbf24 !important;
+}
+
+.tt-side .tt-fs-edited .mud-input.mud-input-outlined {
+    background: #f6fef9;
+}
+
+.tt-side .tt-fs-edited .mud-input-outlined-border {
+    border-color: #4ade80 !important;
+}
+
+.tt-side .tt-fs-missing .tt-field-label > span:first-child,
+.tt-side .tt-fs-missing .tt-field-label > span:first-child {
+    color: #b91c1c;
+}
+
+.tt-side .tt-fs-missing .tt-field-label > span:first-child::before {
+    content: "* ";
+}
+
+/* Values in the overview wrap instead of being cut off, so the full original/suggestion stays readable. */
+.tt-diff td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.tt-diff td:last-child {
+    white-space: nowrap;
+}
+
+/* Call to action: every attention pill is a link that jumps to the first field to handle. */
+a.tt-attention {
+    text-decoration: none;
+    cursor: pointer;
+}
+
+a.tt-attention:hover {
+    filter: brightness(0.97);
+    text-decoration: underline;
+}
+
+.tt-attention-verify {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #b45309;
+}
+
+.tt-label-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tt-flag {
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.tt-flag-missing {
+    color: #ffffff;
+    background: #dc2626;
+}
+
+.tt-flag-changed {
+    color: #92400e;
+    background: #fde68a;
+}
+
+/* Stronger frame for fields that need a human look, plus an accent bar so they stand out while scrolling. */
+.tt-side .tt-fs-changed,
+.tt-side .tt-fs-missing {
+    position: relative;
+}
+
+.tt-side .tt-fs-changed::before,
+.tt-side .tt-fs-missing::before {
+    content: "";
+    position: absolute;
+    left: -18px;
+    top: 2px;
+    bottom: 2px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+}
+
+.tt-side .tt-fs-changed::before { background: #f59e0b; }
+.tt-side .tt-fs-missing::before { background: #dc2626; }
+
+.tt-side .tt-fs-changed .mud-input-outlined-border {
+    border-color: #f59e0b !important;
+}
+
+.tt-diff-name a {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dashed #d1d5db;
+}
+
+.tt-diff-name a:hover {
+    color: #111827;
+    border-bottom-color: #111827;
+}
+
+/* Jump target: keep the field below the sticky app bar and flash it briefly. */
+.tt-field {
+    scroll-margin-top: 90px;
+}
+
+.tt-field:target .mud-input.mud-input-outlined {
+    animation: tt-flash 1.4s ease-out;
+}
+
+@keyframes tt-flash {
+    0% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.45); }
+    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+/* Urgency and impact stack in the narrow panel: side by side, flags + owner badges overflowed the panel. */
+.tt-side .tt-field-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
 }

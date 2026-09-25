@@ -69,12 +69,16 @@ public partial class Home : IDisposable
 
     private static string FormatDuration(TimeSpan? span) => span is { } value ? $"{value.TotalSeconds:F0}s" : "—";
 
-    private static Color ColorFor(HealthStatus? status) => status switch
+    // "AffectedServices" -> "Affected services" for display; the raw name stays in the tooltip.
+    private static string Humanize(string pascal) =>
+        string.Concat(pascal.Select((c, i) => i > 0 && char.IsUpper(c) ? " " + char.ToLowerInvariant(c) : c.ToString()));
+
+    private static string HealthClass(HealthStatus? status) => status switch
     {
-        HealthStatus.Healthy => Color.Success,
-        HealthStatus.Degraded => Color.Warning,
-        HealthStatus.Unhealthy => Color.Error,
-        _ => Color.Default,
+        HealthStatus.Healthy => "tt-health-ok",
+        HealthStatus.Degraded => "tt-health-warn",
+        HealthStatus.Unhealthy => "tt-health-bad",
+        _ => "tt-health-unknown",
     };
 
     public void Dispose()
