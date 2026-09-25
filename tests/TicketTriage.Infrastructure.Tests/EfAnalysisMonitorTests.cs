@@ -156,6 +156,7 @@ public sealed class EfAnalysisMonitorTests
             new TicketNormalizer(NullLogger<TicketNormalizer>.Instance),
             new EmptySimilarSource(),
             new EmptyStatisticsSource(),
+            new FakeWorkload(),
             Options.Create(new TriageOptions()),
             NullLogger<DeterministicFallbackProvider>.Instance);
 

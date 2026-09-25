@@ -22,6 +22,7 @@ public class TriagePipelineTests
             new FakeClassifier(_log),
             new FakeRouter(_log),
             new FakeRoutingStatisticsSource(),
+            new FakeWorkload(),
             _drafter,
             Options.Create(new TriageOptions { SimilarTicketCount = 7 }),
             new RecordingFailureStore(),
@@ -105,6 +106,7 @@ public class TriagePipelineTests
             new FakeClassifier(_log),
             new FakeRouter(_log),
             new FakeRoutingStatisticsSource(),
+            new FakeWorkload(),
             new FakeDrafter(_log),
             Options.Create(new TriageOptions { RetryCount = 2, RetryDelayMilliseconds = 0 }),
             new RecordingFailureStore(),
@@ -114,6 +116,51 @@ public class TriagePipelineTests
 
         suggestion.DraftComment.Should().BeNull();
         suggestion.ServiceTeams.Should().BeEmpty("no similar tickets means no service to route by");
+    }
+
+    [Fact]
+    public async Task Triage_Success_ReservesTheProposedAssigneeOnce_PerAssigneeWorkload()
+    {
+        var workload = new FakeWorkload();
+        var pipeline = new TriagePipeline(
+            new TicketNormalizer(NullLogger<TicketNormalizer>.Instance),
+            _similar,
+            new FakeClassifier(_log),
+            new FakeRouter(_log),
+            new FakeRoutingStatisticsSource(),
+            workload,
+            _drafter,
+            Options.Create(new TriageOptions()),
+            new RecordingFailureStore(),
+            NullLogger<TriagePipeline>.Instance);
+
+        var suggestion = await pipeline.TriageAsync(Tickets.Make("T-1"), TestContext.Current.CancellationToken);
+
+        suggestion.Assignee.Should().Be(FakeRouting.Assignee);
+        workload.Reserved.Should().Equal(FakeRouting.Assignee);
+    }
+
+    [Fact]
+    public async Task Triage_Fallback_ReservesTheAssigneeToo_PerAssigneeWorkload()
+    {
+        var workload = new FakeWorkload();
+        var pipeline = new TriagePipeline(
+            new TicketNormalizer(NullLogger<TicketNormalizer>.Instance),
+            new ThrowingSimilarSource(),
+            new FakeClassifier(_log),
+            new FakeRouter(_log),
+            new FakeRoutingStatisticsSource(),
+            workload,
+            new FakeDrafter(_log),
+            Options.Create(new TriageOptions { RetryCount = 2, RetryDelayMilliseconds = 0 }),
+            new RecordingFailureStore(),
+            NullLogger<TriagePipeline>.Instance);
+
+        var suggestion = await pipeline.TriageAsync(Tickets.Make("T-1"), TestContext.Current.CancellationToken);
+
+        suggestion.DraftComment.Should().BeNull();
+        suggestion.Assignee.Should().Be(FakeRouting.Assignee);
+        workload.Reserved.Should().Equal(FakeRouting.Assignee);
     }
 
     private sealed class ThrowingSimilarSource : TicketTriage.Core.Abstractions.ISimilarTicketSource

@@ -14,7 +14,7 @@ public class StatisticsRoutingResolverTests
     private static StatisticsRoutingResolver Resolver(SqliteTestDatabase db, out RoutingStatisticsProvider provider)
     {
         provider = new RoutingStatisticsProvider(db.Factory, new LookupNamesProvider(db.Factory), NullLogger<RoutingStatisticsProvider>.Instance);
-        return new StatisticsRoutingResolver(provider);
+        return new StatisticsRoutingResolver(provider, new FakeWorkload());
     }
 
     private static Task<RoutingDecision> Route(StatisticsRoutingResolver sut, string service, CancellationToken ct) =>
@@ -25,7 +25,7 @@ public class StatisticsRoutingResolverTests
             ct);
 
     [Fact]
-    public async Task Resolve_CraftedDatabase_ReturnsMajorityTeamAndAssignee_PerAC3()
+    public async Task Resolve_CraftedDatabase_ReturnsMajorityTeam_PerAC3()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var db = await SqliteTestDatabase.CreateAsync(ct);
@@ -40,9 +40,8 @@ public class StatisticsRoutingResolverTests
         var pricing = await Route(sut, "fund pricing", ct);
 
         trading.ServiceTeams.Should().Equal("Trading Support");
-        trading.Assignee.Should().Be("bob");
         pricing.ServiceTeams.Should().Equal("Valuation & Pricing");
-        pricing.Assignee.Should().BeNull();
+        trading.Assignee.Should().Be(FakeRouting.Assignee, "the assignee comes from the workload, not from the majority vote");
     }
 
     [Fact]
@@ -57,7 +56,6 @@ public class StatisticsRoutingResolverTests
         var decision = await Route(sut, "Fund Pricing", ct);
 
         decision.ServiceTeams.Should().Equal("Client Services");
-        decision.Assignee.Should().Be("alice");
     }
 
     [Fact]
@@ -71,7 +69,7 @@ public class StatisticsRoutingResolverTests
         var decision = await Route(sut, "Trading Platform", ct);
 
         decision.ServiceTeams.Should().BeEmpty();
-        decision.Assignee.Should().BeNull();
+        decision.Assignee.Should().Be(FakeRouting.Assignee, "the assignee does not depend on the service");
     }
 
     [Fact]
@@ -83,10 +81,10 @@ public class StatisticsRoutingResolverTests
             _ =>
             {
                 loads++;
-                return Task.FromResult<IReadOnlyList<(string, string, string?, int)>>([("Fund Pricing", "Client Services", "bob", 1)]);
+                return Task.FromResult<IReadOnlyList<(string, string, int)>>([("Fund Pricing", "Client Services", 1)]);
             },
             NullLogger<RoutingStatisticsProvider>.Instance);
-        var sut = new StatisticsRoutingResolver(provider);
+        var sut = new StatisticsRoutingResolver(provider, new FakeWorkload());
 
         await Route(sut, "Fund Pricing", ct);
         await Route(sut, "Fund Pricing", ct);
@@ -100,10 +98,10 @@ public class StatisticsRoutingResolverTests
         var ct = TestContext.Current.CancellationToken;
         var loads = 0;
         var provider = new RoutingStatisticsProvider(
-            _ => Task.FromResult<IReadOnlyList<(string, string, string?, int)>>(
-                ++loads == 1 ? [] : [("Fund Pricing", "Client Services", "bob", 1)]),
+            _ => Task.FromResult<IReadOnlyList<(string, string, int)>>(
+                ++loads == 1 ? [] : [("Fund Pricing", "Client Services", 1)]),
             NullLogger<RoutingStatisticsProvider>.Instance);
-        var sut = new StatisticsRoutingResolver(provider);
+        var sut = new StatisticsRoutingResolver(provider, new FakeWorkload());
 
         var first = await Route(sut, "Fund Pricing", ct);
         var second = await Route(sut, "Fund Pricing", ct);
@@ -130,7 +128,6 @@ public class StatisticsRoutingResolverTests
         var decision = await Route(Resolver(db, out _), "Fund Pricing", ct);
 
         decision.ServiceTeams.Should().Equal("Client Services");
-        decision.Assignee.Should().Be("Alice");
     }
 
     [Fact]
@@ -149,10 +146,10 @@ public class StatisticsRoutingResolverTests
                 }
 
                 token.ThrowIfCancellationRequested();
-                return [("Fund Pricing", "Client Services", "bob", 1)];
+                return [("Fund Pricing", "Client Services", 1)];
             },
             NullLogger<RoutingStatisticsProvider>.Instance);
-        var sut = new StatisticsRoutingResolver(provider);
+        var sut = new StatisticsRoutingResolver(provider, new FakeWorkload());
 
         var act = async () => await Route(sut, "Fund Pricing", cancelled.Token);
         await act.Should().ThrowAsync<OperationCanceledException>();

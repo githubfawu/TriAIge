@@ -103,6 +103,16 @@ public sealed class ReviewPageTests : TriageBunitContext
     }
 
     [Fact]
+    public void Assignee_ShowsTheLeastLoadedHint()
+    {
+        RegisterServices(this, MakeReview(suggestion: MakeSuggestion()));
+
+        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
+
+        cut.Find("#review-assignee-hint").TextContent.Should().Contain("fewest tickets assigned");
+    }
+
+    [Fact]
     public void EditingAField_DisablesAccept_EnablesSave_PerFR18()
     {
         RegisterServices(this, MakeReview(suggestion: MakeSuggestion()));

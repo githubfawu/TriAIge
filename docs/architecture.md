@@ -69,7 +69,7 @@ flowchart LR
     json[/training file<br/>20k noisy tickets/] --> imp["Import<br/>idempotent (FR-01)"]
     imp --> clean["Clean resolutions<br/>drop templates, 'Problem fixed' (FR-02)"]
     clean --> emb["Embed summary + description<br/>dedupe, cache (FR-03)"]
-    clean --> stats["Routing statistics<br/>service→team, (service,team)→assignee (FR-04)"]
+    clean --> stats["Routing statistics<br/>service→team (FR-04); assignee: least-loaded person"]
     emb --> filt["Filter mismatching resolutions<br/>similarity threshold (FR-05)"]
     emb & stats & filt --> db[(SQLite)]
 ```
@@ -99,7 +99,7 @@ flowchart LR
     t[/Ticket/] --> s1
     s1["1 · Normalize & retrieve<br/>flag empty/suspicious fields,<br/>top-k kNN (cosine)"]
     s2["2 · Classify<br/>work type, affected service<br/>structured output"]
-    s3["3 · Route<br/>team + assignee<br/>from routing statistics"]
+    s3["3 · Route<br/>team from routing statistics,<br/>assignee = fewest tickets"]
     s4["4 · Assess & prioritize<br/>LLM: urgency + impact<br/>code: PriorityMatrix"]
     s5["5 · Draft & validate<br/>resolution + comment (assignee voice),<br/>vocabulary & consistency checks"]
     out[/TriageSuggestion<br/>+ reference ticket keys/]
@@ -120,7 +120,7 @@ flowchart LR
 |---|---|---|---|
 | 1 Normalize & retrieve | `TicketNormalizer` (implemented) + `ISimilarTicketSource` | code (TF-IDF + cosine kNN over `Description`, in memory) | normalize and `DbSimilarTicketSource` implemented ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)); no embeddings / BM25 |
 | 2 Classify | `ITicketClassifier` | LLM, validated against the service catalog (`IServiceCatalogProvider`) / enums | implemented (`LlmTicketClassifier`); `ServiceCatalog` holds the 20 real names |
-| 3 Route | `IRoutingResolver` | code (majority vote over `RoutingStatistics`, ties alphabetical), LLM never invents names | implemented (`StatisticsRoutingResolver`; statistics built once per process, no schema change) |
+| 3 Route | `IRoutingResolver` | code: team by majority vote over `RoutingStatistics`, assignee = person with the fewest tickets (`IAssigneeWorkload`, ties alphabetical); LLM never invents names | implemented (`StatisticsRoutingResolver`; statistics and workload built once per process, no schema change; the pipeline reserves the assignee after each final suggestion) |
 | 4 Assess & prioritize | `ITicketClassifier` + `PriorityMatrix` | LLM (urgency, impact) → **code** (priority) | implemented (urgency + impact come from the same LLM call as step 2; matrix in Core) |
 | 5 Draft & validate | `IResolutionDrafter` + `SuggestionValidator` | LLM draft from cleaned templates → code validation (FR-33) | drafter implemented (`LlmResolutionDrafter`, prompt `drafter-v2`): the Core port `DraftAsync(ticket, classification, routing, similar)` returns `ResolutionDraft(Status, Comment)`; the pipeline sets `TriageSuggestion.ResolutionStatus` and `TriageResult.Resolution` writes it in the lowercase export vocabulary (`done`, `cancelled`, `clarification`, `cannot reproduce`). An unknown model status throws, so retry and fallback apply; the fallback status is the majority of the similar tickets' statuses (ties: summed score, then enum order), else `done`. Validator checks all 7 fields (FR-33): enums, canonical `ServiceCatalog` names, team and assignee equal to the routing statistics for the first service (none for an unknown service), priority = matrix, resolution status, comment. The fallback takes its routing from the same statistics, so it is always consistent |
 | Orchestration | `ITriagePipeline` (analysis only, stream) | code: sequential, timeout, retry, failure log, fallback (FR-34…36) | implemented |
@@ -199,7 +199,7 @@ sequenceDiagram
         D-->>W: tickets
         W->>P: TriageAsync(ticket)
         P->>D: similar tickets (TF-IDF), routing statistics
-        D-->>P: similar tickets, team / assignee votes
+        D-->>P: similar tickets, team votes, assignee workload
         P->>L: classify + assess urgency + impact (structured output)
         L-->>P: work type, services, urgency, impact
         Note over P: route from statistics, priority = PriorityMatrix
@@ -330,7 +330,7 @@ Decided as out of scope for the hackathon. Recorded so they are not mistaken for
 | Reopen, un-reject, re-analyse after a decision | Not supported. Decisions are final. |
 | Embedding model change | No model/version key on vectors. A model change means a full re-import. |
 | Rare services, ties in routing | The analyst decides. No tie-break, no flag. |
-| Inactive team or assignee | Routing statistics come from history and may name someone who has left. Not checked. |
+| Inactive team or assignee | Routing statistics and the workload come from history and may name someone who has left or is absent. Not checked. |
 | Duplicate tickets | Similar tickets are shown as references. No duplicate detection or linking. |
 | Direct database edits | A ticket edited in the database (not through ingest) does not invalidate its suggestion. |
 | Personal data | No PII redaction, retention or region rules beyond the log hygiene of CLAUDE.md. |

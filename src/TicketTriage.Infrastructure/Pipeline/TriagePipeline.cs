@@ -14,6 +14,7 @@ internal sealed class TriagePipeline(
     ITicketClassifier classifier,
     IRoutingResolver routingResolver,
     IRoutingStatisticsSource statisticsSource,
+    IAssigneeWorkload workload,
     IResolutionDrafter drafter,
     IOptions<TriageOptions> options,
     ITriageFailureStore failureStore,
@@ -84,6 +85,7 @@ internal sealed class TriagePipeline(
                 };
                 SuggestionValidator.Validate(suggestion, await statisticsSource.GetAsync(token));
 
+                await workload.ReserveAsync(suggestion.Assignee, token);
                 await ResetRetriesAsync(ticket, outerToken);
                 return suggestion;
             }
@@ -113,10 +115,12 @@ internal sealed class TriagePipeline(
                     logger.LogWarning(
                         "Triage of {TicketKey} failed after attempt {Attempt} ({Reason}); using fallback",
                         ticket.Key, attempt, reason);
+                    var assignee = await LoadAssigneeForFallbackAsync(settings, outerToken);
                     return FallbackSuggestionFactory.Create(
                         normalized ?? ticket,
                         similar ?? [],
                         await LoadStatisticsForFallbackAsync(ticket, settings, outerToken),
+                        assignee,
                         logger);
                 }
 
@@ -145,6 +149,28 @@ internal sealed class TriagePipeline(
         {
             logger.LogWarning("Fallback routing statistics unavailable for {TicketKey}: {ExceptionType}", ticket.Key, ex.GetType().FullName);
             return RoutingStatistics.Empty;
+        }
+    }
+
+    // Like the statistics, a workload failure must not break the fallback: it then carries no assignee.
+    private async Task<string?> LoadAssigneeForFallbackAsync(TriageOptions settings, CancellationToken outerToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(outerToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(settings.TicketTimeoutSeconds));
+        try
+        {
+            var assignee = await workload.PeekLeastLoadedAsync(cts.Token);
+            await workload.ReserveAsync(assignee, cts.Token);
+            return assignee;
+        }
+        catch (OperationCanceledException) when (outerToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Fallback assignee workload unavailable: {ExceptionType}", ex.GetType().FullName);
+            return null;
         }
     }
 
