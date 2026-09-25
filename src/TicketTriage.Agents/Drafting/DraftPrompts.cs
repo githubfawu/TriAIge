@@ -7,7 +7,7 @@ namespace TicketTriage.Agents.Drafting;
 internal static class DraftPrompts
 {
     /// <summary>Logged with every run so a suggestion can be traced back to the prompt (FR-32).</summary>
-    public const string Version = "drafter-v2";
+    public const string Version = "drafter-v3";
 
     public static string BuildInstructions()
     {
@@ -42,7 +42,7 @@ internal static class DraftPrompts
             ? "Write in a neutral professional analyst voice."
             : $"Write in the voice of the analyst {TicketPromptFormatter.Clean(routing.Assignee)}, who would handle this ticket.");
         builder.AppendLine();
-        builder.Append(TicketPromptFormatter.FormatSimilarTickets(similarTickets, includeResolutionNote: true));
+        builder.Append(TicketPromptFormatter.FormatSimilarTickets(similarTickets, includeResolutionNote: true, includeResolutionStatus: false));
         return builder.ToString();
     }
 }

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
@@ -19,11 +18,25 @@ public sealed class BatchCommandTests : IDisposable
 
     private string Output => _dir.Combine("result.json");
 
-    private BatchRunner CreateRunner(string input, ITriagePipeline? pipeline = null) => new(
-        Options.Create(new BatchOptions { Input = input, Output = Output }),
-        pipeline ?? new FakeTriagePipeline(),
-        TimeProvider.System,
-        NullLogger<BatchRunner>.Instance);
+    private BatchRunner CreateRunner(string input, FakeAnalysis? analysis = null)
+    {
+        analysis ??= new FakeAnalysis();
+        return new BatchRunner(
+            Options.Create(new BatchOptions
+            {
+                Input = input,
+                Output = Output,
+                PollIntervalSeconds = 5,
+                WaitTimeoutSeconds = 100,
+                WorkerHeartbeatMaxAgeSeconds = 30,
+                WorkerStartGraceSeconds = 20,
+            }),
+            analysis,
+            analysis,
+            new FakeFallback(),
+            new TestTimeProvider(),
+            NullLogger<BatchRunner>.Instance);
+    }
 
     private Task<int> RunAsync(BatchRunner runner, CancellationToken? token = null) =>
         BatchCommand.ExecuteAsync(runner, _stdout, _stderr, token ?? TestContext.Current.CancellationToken);
@@ -88,38 +101,59 @@ public sealed class BatchCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task ExecuteAsync_InvalidInput_NeverCallsPipeline_PerAC4()
+    public async Task ExecuteAsync_InvalidInput_NeverIngests_PerAC4()
     {
-        var pipeline = new CountingPipeline();
+        var analysis = new FakeAnalysis();
 
-        await RunAsync(CreateRunner(WriteInput("[]"), pipeline));
+        await RunAsync(CreateRunner(WriteInput("[]"), analysis));
 
-        pipeline.Calls.Should().Be(0);
+        analysis.IngestCalls.Should().Be(0);
     }
 
     [Fact]
-    public async Task ExecuteAsync_PipelineCancelledAtSecondTicket_Returns1AndKeepsOutput_PerAC5()
-    {
-        SeedOldOutput();
-
-        var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1", "A-2", "A-3"), new FakeTriagePipeline(cancelAtIndex: 1)));
-
-        exitCode.Should().Be(1);
-        _stderr.ToString().Should().Contain("Triage:StopSystemOnFailure").And.Contain("no output written");
-        AssertNothingWritten();
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_CancelledMidStream_Returns1AndKeepsOutput_PerAC5()
+    public async Task ExecuteAsync_CancelledWhileWaiting_Returns1AndKeepsOutput_PerAC6()
     {
         SeedOldOutput();
         using var cts = new CancellationTokenSource();
-        var pipeline = new CancelAfterFirstPipeline(cts);
+        var analysis = new FakeAnalysis { IsPending = (_, _) => true, OnPoll = _ => cts.Cancel() };
 
-        var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1", "A-2"), pipeline), cts.Token);
+        var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1", "A-2"), analysis), cts.Token);
 
         exitCode.Should().Be(1);
+        _stderr.ToString().Should().Contain("cancelled").And.Contain("no output written");
         AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WorkerNotRunning_Returns3WithStartWebHintAndKeepsOutput_PerAC6()
+    {
+        SeedOldOutput();
+        var analysis = new FakeAnalysis { IsPending = (_, _) => true };
+
+        var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1"), analysis));
+
+        exitCode.Should().Be(3);
+        _stderr.ToString().Should().Contain("Analysis worker is not running - start TicketTriage.Web");
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TicketsNotAnalysedInTime_Returns0PrintsNotAnalysedCount_PerAC6()
+    {
+        var time = new TestTimeProvider();
+        var analysis = new FakeAnalysis { IsPending = (_, id) => id == 2, Heartbeat = () => time.UtcNow };
+        var runner = new BatchRunner(
+            Options.Create(new BatchOptions { Input = WriteTickets("A-1", "A-2", "A-3"), Output = Output }),
+            analysis,
+            analysis,
+            new FakeFallback(),
+            time,
+            NullLogger<BatchRunner>.Instance);
+
+        var exitCode = await RunAsync(runner);
+
+        exitCode.Should().Be(0);
+        _stdout.ToString().Should().Contain("fallback/failed: 1 (not analysed: 1)").And.Contain("Warning: 1 ticket(s)");
     }
 
     [Fact]
@@ -127,7 +161,9 @@ public sealed class BatchCommandTests : IDisposable
     {
         var runner = new BatchRunner(
             new ThrowingOptions(),
-            new FakeTriagePipeline(),
+            new FakeAnalysis(),
+            new FakeAnalysis(),
+            new FakeFallback(),
             TimeProvider.System,
             NullLogger<BatchRunner>.Instance);
 
@@ -141,7 +177,7 @@ public sealed class BatchCommandTests : IDisposable
     public async Task ExecuteAsync_InvalidOptions_DoesNotRunDatabaseInitialisation_PerAC6()
     {
         var runner = new BatchRunner(
-            new ThrowingOptions(), new FakeTriagePipeline(), TimeProvider.System, NullLogger<BatchRunner>.Instance);
+            new ThrowingOptions(), new FakeAnalysis(), new FakeAnalysis(), new FakeFallback(), TimeProvider.System, NullLogger<BatchRunner>.Instance);
         var initialised = false;
 
         var exitCode = await BatchCommand.ExecuteAsync(
@@ -190,17 +226,17 @@ public sealed class BatchCommandTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_Success_PrintsSummaryCounts_PerAC3()
     {
-        var pipeline = new FakeTriagePipeline(fallbackKeys: ["A-2"]);
+        var pipeline = new FakeAnalysis(Suggestions.Standard(["A-2"]));
 
         await RunAsync(CreateRunner(WriteTickets("A-1", "A-2", "A-3"), pipeline));
 
-        _stdout.ToString().Should().Contain("Tickets: 3 · fallback/failed: 1 · duration: ").And.Contain("output: " + Output);
+        _stdout.ToString().Should().Contain("Tickets: 3 · fallback/failed: 1 (not analysed: 0) · duration:").And.Contain("output: " + Output);
     }
 
     [Fact]
     public async Task ExecuteAsync_AllTicketsFallback_PrintsWarning_PerAC7()
     {
-        var pipeline = new FakeTriagePipeline(fallbackKeys: ["A-1", "A-2"]);
+        var pipeline = new FakeAnalysis(Suggestions.Standard(["A-1", "A-2"]));
 
         var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1", "A-2"), pipeline));
 
@@ -211,7 +247,7 @@ public sealed class BatchCommandTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_MixedResults_PrintsNoWarning_PerAC7()
     {
-        var pipeline = new FakeTriagePipeline(fallbackKeys: ["A-1"]);
+        var pipeline = new FakeAnalysis(Suggestions.Standard(["A-1"]));
 
         await RunAsync(CreateRunner(WriteTickets("A-1", "A-2"), pipeline));
 
@@ -229,7 +265,7 @@ public sealed class BatchCommandTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_Success_StdoutContainsNoTicketText_PerAC3()
     {
-        await RunAsync(CreateRunner(WriteTickets("A-1"), new FakeTriagePipeline(fallbackKeys: ["A-1"])));
+        await RunAsync(CreateRunner(WriteTickets("A-1"), new FakeAnalysis(Suggestions.Standard(["A-1"]))));
 
         _stdout.ToString().Should().NotContain(Marker);
     }
@@ -237,7 +273,7 @@ public sealed class BatchCommandTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_UnexpectedException_PrintsTypeNameOnly_PerAC6()
     {
-        var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1"), new ThrowingPipeline()));
+        var exitCode = await RunAsync(CreateRunner(WriteTickets("A-1"), new FakeAnalysis { ThrowOnIngest = true }));
 
         exitCode.Should().Be(1);
         _stderr.ToString().Should().Contain(nameof(InvalidOperationException)).And.NotContain(Marker);
@@ -268,59 +304,5 @@ public sealed class BatchCommandTests : IDisposable
     {
         public BatchOptions Value => throw new OptionsValidationException(
             nameof(BatchOptions), typeof(BatchOptions), ["Missing --input <path>."]);
-    }
-
-    private sealed class CountingPipeline : ITriagePipeline
-    {
-        public int Calls { get; private set; }
-
-        public Task<TriageSuggestion> TriageAsync(Ticket ticket, CancellationToken cancellationToken)
-        {
-            Calls++;
-            throw new InvalidOperationException();
-        }
-
-        public IAsyncEnumerable<TriageSuggestion> TriageAsync(IAsyncEnumerable<Ticket> tickets, CancellationToken cancellationToken)
-        {
-            Calls++;
-            throw new InvalidOperationException();
-        }
-    }
-
-    private sealed class ThrowingPipeline : ITriagePipeline
-    {
-        public Task<TriageSuggestion> TriageAsync(Ticket ticket, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException(Marker);
-
-        public IAsyncEnumerable<TriageSuggestion> TriageAsync(IAsyncEnumerable<Ticket> tickets, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException(Marker);
-    }
-
-    private sealed class CancelAfterFirstPipeline(CancellationTokenSource cts) : ITriagePipeline
-    {
-        public Task<TriageSuggestion> TriageAsync(Ticket ticket, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public async IAsyncEnumerable<TriageSuggestion> TriageAsync(
-            IAsyncEnumerable<Ticket> tickets,
-            [EnumeratorCancellation] CancellationToken cancellationToken)
-        {
-            await foreach (var ticket in tickets.WithCancellation(cancellationToken))
-            {
-                yield return new TriageSuggestion
-                {
-                    TicketKey = ticket.Key,
-                    WorkType = WorkType.Incident,
-                    AffectedServices = [],
-                    ServiceTeams = [],
-                    Assignee = "x",
-                    Urgency = Urgency.Low,
-                    Impact = Impact.Minor,
-                    DraftComment = "Draft.",
-                };
-                await cts.CancelAsync();
-                cancellationToken.ThrowIfCancellationRequested();
-            }
-        }
     }
 }

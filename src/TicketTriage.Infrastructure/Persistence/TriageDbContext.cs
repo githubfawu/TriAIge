@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using TicketTriage.Core.Domain;
 
 namespace TicketTriage.Infrastructure.Persistence;
 
@@ -30,6 +31,12 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
     public DbSet<PriorityMappingEntity> PriorityMappings => Set<PriorityMappingEntity>();
 
     public DbSet<TriageFailureEntity> TriageFailures => Set<TriageFailureEntity>();
+
+    public DbSet<SystemMarkerEntity> SystemMarkers => Set<SystemMarkerEntity>();
+
+    public DbSet<TriageSuggestionEntity> Suggestions => Set<TriageSuggestionEntity>();
+
+    public DbSet<SuggestionEditEntity> SuggestionEdits => Set<SuggestionEditEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -114,7 +121,18 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
             ticket.Property(t => t.Resolution).HasMaxLength(500);
             ticket.Property(t => t.ResolutionChanged).HasMaxLength(500);
             ticket.Property(t => t.Retries).HasDefaultValue(0);
+            ticket.Property(t => t.Origin).HasConversion<int>().HasDefaultValue(TicketOrigin.Training);
+            ticket.Property(t => t.SourceKey).HasMaxLength(100);
+            ticket.Property(t => t.SourceHash).HasMaxLength(64);
+            ticket.Property(t => t.SourcePayload).HasColumnType("TEXT");
+            // Ticks keep the lease comparison exact; SQLite cannot compare DateTime text reliably across formats.
+            ticket.Property(t => t.ClaimedAt).HasConversion<long?>(
+                v => v == null ? null : v.Value.Ticks,
+                v => v == null ? null : new DateTime(v.Value, DateTimeKind.Utc));
+            ticket.Property(t => t.Version).IsConcurrencyToken().HasDefaultValue(0L);
             ticket.HasIndex(t => t.StatusId);
+            ticket.HasIndex(t => new { t.Origin, t.SourceKey }).IsUnique();
+            ticket.HasIndex(t => new { t.StatusId, t.Origin, t.ClaimedAt });
             ticket.HasIndex(t => t.CreatedDate);
 
             ticket.HasOne<WorkTypeEntity>().WithMany().HasForeignKey(t => t.WorkTypeId).OnDelete(DeleteBehavior.Restrict);
@@ -142,6 +160,41 @@ public sealed class TriageDbContext(DbContextOptions<TriageDbContext> options) :
             ticket.HasOne<StatusEntity>().WithMany().HasForeignKey(t => t.StatusChangedId).OnDelete(DeleteBehavior.Restrict);
 
             ticket.HasMany(t => t.Comments).WithOne().HasForeignKey(c => c.TicketId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TriageSuggestionEntity>(suggestion =>
+        {
+            suggestion.ToTable("TriageSuggestion");
+            suggestion.HasKey(s => s.TicketId);
+            suggestion.Property(s => s.TicketId).ValueGeneratedNever();
+            suggestion.Property(s => s.WorkType).HasConversion<int>();
+            suggestion.Property(s => s.Urgency).HasConversion<int>();
+            suggestion.Property(s => s.Impact).HasConversion<int>();
+            suggestion.Property(s => s.Priority).HasConversion<int>();
+            suggestion.Property(s => s.ResolutionStatus).HasConversion<int?>();
+            suggestion.Property(s => s.Decision).HasConversion<int>();
+            suggestion.Property(s => s.Assignee).HasMaxLength(50);
+            suggestion.Property(s => s.DraftComment).HasMaxLength(2000);
+            suggestion.Property(s => s.RejectReason).HasMaxLength(500);
+            suggestion.HasOne<TicketEntity>().WithOne().HasForeignKey<TriageSuggestionEntity>(s => s.TicketId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SuggestionEditEntity>(edit =>
+        {
+            edit.ToTable("SuggestionEdit");
+            edit.HasKey(e => e.Id);
+            edit.Property(e => e.Field).HasMaxLength(50).IsRequired();
+            edit.Property(e => e.AiValue).HasMaxLength(2000);
+            edit.Property(e => e.FinalValue).HasMaxLength(2000);
+            edit.HasIndex(e => new { e.TicketId, e.Field }).IsUnique();
+            edit.HasOne<TicketEntity>().WithMany().HasForeignKey(e => e.TicketId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SystemMarkerEntity>(marker =>
+        {
+            marker.ToTable("SystemMarker");
+            marker.HasKey(m => m.Name);
+            marker.Property(m => m.Name).HasMaxLength(50);
         });
 
         modelBuilder.Entity<TriageFailureEntity>(failure =>

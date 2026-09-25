@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using TicketTriage.Core.Domain;
 using TicketTriage.Infrastructure.Persistence;
 
 namespace TicketTriage.Infrastructure.Tests;
@@ -14,9 +15,16 @@ internal sealed class SqliteTestDatabase : IAsyncDisposable
     public IDbContextFactory<TriageDbContext> Factory =>
         _provider!.GetRequiredService<IDbContextFactory<TriageDbContext>>();
 
-    public static async Task<SqliteTestDatabase> CreateAsync(CancellationToken cancellationToken)
+    public SqliteConnection Connection => _connection;
+
+    public TicketOrigin DefaultOrigin { get; private init; } = TicketOrigin.Training;
+
+    public static Task<SqliteTestDatabase> CreateAsync(CancellationToken cancellationToken) =>
+        CreateAsync(TicketOrigin.Training, cancellationToken);
+
+    public static async Task<SqliteTestDatabase> CreateAsync(TicketOrigin defaultOrigin, CancellationToken cancellationToken)
     {
-        var database = new SqliteTestDatabase();
+        var database = new SqliteTestDatabase { DefaultOrigin = defaultOrigin };
         await database._connection.OpenAsync(cancellationToken);
         database._provider = new ServiceCollection()
             .AddDbContextFactory<TriageDbContext>(o => o.UseSqlite(database._connection))
@@ -37,6 +45,8 @@ internal sealed class SqliteTestDatabase : IAsyncDisposable
         DateTime? created = null,
         string? assignee = null,
         string? resolution = null,
+        TicketOrigin? origin = null,
+        string? sourceKey = null,
         CancellationToken cancellationToken = default)
     {
         await using var db = await Factory.CreateDbContextAsync(cancellationToken);
@@ -44,6 +54,8 @@ internal sealed class SqliteTestDatabase : IAsyncDisposable
         {
             Id = id,
             Summary = $"Summary {id}",
+            Origin = origin ?? DefaultOrigin,
+            SourceKey = sourceKey,
             Description = description,
             WorkTypeId = workTypeId,
             AffectedBusinessOrITServiceId = serviceId,

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using TicketTriage.Core.Domain;
 using TicketTriage.Infrastructure.Persistence;
 using TicketTriage.Infrastructure.Sources;
 
@@ -88,6 +89,7 @@ internal sealed class RoutingStatisticsProvider : IRoutingStatisticsSource, IDis
         var names = await lookupNames.GetAsync(cancellationToken);
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var groups = await db.Tickets.AsNoTracking()
+            .Where(t => t.Origin == TicketOrigin.Training)
             .Where(t => t.AffectedBusinessOrITServiceId != null && t.ServiceTeamId != null)
             .GroupBy(t => new { t.AffectedBusinessOrITServiceId, t.ServiceTeamId, t.Assignee })
             .Select(g => new { g.Key.AffectedBusinessOrITServiceId, g.Key.ServiceTeamId, g.Key.Assignee, Count = g.Count() })

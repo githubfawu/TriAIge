@@ -35,6 +35,7 @@ public sealed class FallbackContractTests : IDisposable
         services.AddLogging();
         services.AddTriageInfrastructure(config);
         services.AddScoped<ITicketClassifier, ThrowingClassifier>();
+        services.AddScoped<IResolutionDrafter, UnusedDrafter>();
         await using var provider = services.BuildServiceProvider();
         await using (var db = await provider.GetRequiredService<IDbContextFactory<TriageDbContext>>().CreateDbContextAsync(ct))
         {
@@ -51,6 +52,11 @@ public sealed class FallbackContractTests : IDisposable
 
         suggestions.Should().ContainSingle();
         BatchRunner.IsFallback(suggestions[0]).Should().BeTrue();
+
+        var provided = await scope.ServiceProvider.GetRequiredService<IFallbackSuggestionProvider>().CreateAsync(ticket, ct);
+
+        BatchRunner.IsFallback(provided).Should().BeTrue();
+        provided.Should().BeEquivalentTo(suggestions[0]);
     }
 
     [Theory]
@@ -79,6 +85,17 @@ public sealed class FallbackContractTests : IDisposable
     {
         yield return ticket;
         await Task.CompletedTask;
+    }
+
+    private sealed class UnusedDrafter : IResolutionDrafter
+    {
+        public Task<ResolutionDraft> DraftAsync(
+            Ticket ticket,
+            TicketClassification classification,
+            RoutingDecision routing,
+            IReadOnlyList<SimilarTicket> similarTickets,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("drafter must not run after a classifier failure");
     }
 
     private sealed class ThrowingClassifier : ITicketClassifier

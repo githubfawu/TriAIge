@@ -114,6 +114,19 @@ public class LlmTicketClassifierTests
     }
 
     [Fact]
+    public async Task Similar_tickets_keep_resolution_status_and_have_no_resolution_note()
+    {
+        var client = new FakeChatClient(Samples.ValidClassification);
+        var similar = new SimilarTicket(
+            new Ticket { Key = "H-1", Summary = "s", Resolution = "cancelled", Comments = ["a@x.ch: Resolution: fixed it"] }, 0.8);
+
+        await Create(client).ClassifyAsync(Samples.Ticket(), [similar], CancellationToken.None);
+
+        var user = string.Join("\n", client.Calls.Single().Where(m => m.Role == ChatRole.User).Select(m => m.Text));
+        user.Should().Contain("Resolution status: cancelled").And.NotContain("Resolution note:");
+    }
+
+    [Fact]
     public async Task Temperature_is_zero()
     {
         var client = new FakeChatClient(Samples.ValidClassification);

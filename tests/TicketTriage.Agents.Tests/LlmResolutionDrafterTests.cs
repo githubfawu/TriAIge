@@ -112,7 +112,7 @@ public class LlmResolutionDrafterTests
         await Create(client).DraftAsync(Samples.Ticket(), Classification, Routed, similar, CancellationToken.None);
 
         var user = UserMessage(client);
-        user.Should().Contain("Resolution status: cancelled");
+        user.Should().NotContain("Resolution status:");
         user.Should().Contain("Resolution note: Reset the token and re-enrolled the device.");
         user.Should().NotContain("template text").And.NotContain("Problem fixed.");
     }

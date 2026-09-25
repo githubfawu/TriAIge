@@ -27,7 +27,11 @@ internal static class TicketPromptFormatter
     private const string ResolutionNotePrefix = "Resolution:";
 
     /// <param name="includeResolutionNote">Drafter only: adds the cleaned resolution note found in the comments.</param>
-    public static string FormatSimilarTickets(IReadOnlyList<SimilarTicket> similarTickets, bool includeResolutionNote = false)
+    /// <param name="includeResolutionStatus">Resolution status is ~random in the training data, so the drafter omits it.</param>
+    public static string FormatSimilarTickets(
+        IReadOnlyList<SimilarTicket> similarTickets,
+        bool includeResolutionNote = false,
+        bool includeResolutionStatus = true)
     {
         var builder = new StringBuilder();
         builder.AppendLine("<similar_tickets>");
@@ -37,7 +41,11 @@ internal static class TicketPromptFormatter
             builder.AppendLine($"Summary: {Clean(similar.Ticket.Summary)}");
             builder.AppendLine($"Work type: {Clean(similar.Ticket.WorkType)}");
             builder.AppendLine($"Affected services: {Clean(string.Join(", ", similar.Ticket.AffectedServices))}");
-            builder.AppendLine($"Resolution status: {Clean(similar.Ticket.Resolution)}");
+            if (includeResolutionStatus)
+            {
+                builder.AppendLine($"Resolution status: {Clean(similar.Ticket.Resolution)}");
+            }
+
             if (includeResolutionNote && ExtractResolutionNote(similar.Ticket) is { } note)
             {
                 builder.AppendLine($"Resolution note: {Clean(note)}");

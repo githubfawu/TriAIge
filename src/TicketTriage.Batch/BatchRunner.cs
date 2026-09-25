@@ -7,10 +7,15 @@ using TicketTriage.Core.Domain;
 
 namespace TicketTriage.Batch;
 
-/// <summary>Reads the challenge tickets, triages them and writes the result file for scoring.</summary>
+/// <summary>
+/// Ingests the challenge tickets, waits for the Web analysis worker to store its suggestions and writes the result file
+/// for scoring. Never calls the LLM itself.
+/// </summary>
 public sealed class BatchRunner(
     IOptions<BatchOptions> options,
-    ITriagePipeline pipeline,
+    ITicketIngestor ingestor,
+    IAnalysisMonitor monitor,
+    IFallbackSuggestionProvider fallbackProvider,
     TimeProvider timeProvider,
     ILogger<BatchRunner> logger)
 {
@@ -20,6 +25,7 @@ public sealed class BatchRunner(
     {
         var started = timeProvider.GetTimestamp();
         var (input, output) = Prepare();
+        var settings = options.Value;
 
         logger.LogInformation("Reading challenge tickets from {Input}.", input);
         var document = await ChallengeDocument.ReadAsync(input, cancellationToken);
@@ -30,10 +36,44 @@ public sealed class BatchRunner(
             logger.LogWarning("Duplicate issue key {Key} occurs more than once in the input.", duplicate);
         }
 
-        var results = new List<TriageResult>(tickets.Count);
-        var fallbacks = 0;
-        await foreach (var suggestion in pipeline.TriageAsync(ToAsyncEnumerable(tickets), cancellationToken))
+        var ingested = await ingestor.IngestAsync(tickets, TicketOrigin.Challenge, cancellationToken);
+        if (ingested.Count != tickets.Count)
         {
+            throw new InvalidOperationException($"Ingestor returned {ingested.Count} results for {tickets.Count} tickets.");
+        }
+
+        var ids = ingested.Select(r => r.TicketId).ToList();
+        var distinctIds = ids.Distinct().ToList();
+        logger.LogInformation(
+            "Ingested {Count} tickets ({Created} created, {Updated} updated, {Unchanged} unchanged, {Locked} locked).",
+            ids.Count,
+            ingested.Count(r => r.Outcome == IngestOutcome.Created),
+            ingested.Count(r => r.Outcome == IngestOutcome.Updated),
+            ingested.Count(r => r.Outcome == IngestOutcome.Unchanged),
+            ingested.Count(r => r.Outcome == IngestOutcome.Locked));
+
+        var states = await WaitForAnalysisAsync(distinctIds, settings, cancellationToken);
+        var byId = states.ToDictionary(s => s.TicketId);
+
+        var fallbackCache = new Dictionary<int, TriageSuggestion>();
+        var results = new List<TriageResult>(ids.Count);
+        var fallbacks = 0;
+        var notAnalysed = 0;
+        foreach (var id in ids)
+        {
+            var state = byId[id];
+            var suggestion = state.Suggestion;
+            if (suggestion is null)
+            {
+                if (!fallbackCache.TryGetValue(id, out suggestion))
+                {
+                    suggestion = await fallbackProvider.CreateAsync(state.Ticket, cancellationToken);
+                    fallbackCache[id] = suggestion;
+                }
+
+                notAnalysed++;
+            }
+
             if (IsFallback(suggestion))
             {
                 fallbacks++;
@@ -42,20 +82,57 @@ public sealed class BatchRunner(
             results.Add(TriageResult.From(suggestion));
         }
 
-        if (results.Count != tickets.Count)
-        {
-            throw new InvalidOperationException(
-                $"Pipeline returned {results.Count} results for {tickets.Count} tickets.");
-        }
-
         cancellationToken.ThrowIfCancellationRequested();
         await WriteAtomicallyAsync(output, document.ToOutput(results), cancellationToken);
 
         var duration = timeProvider.GetElapsedTime(started);
         logger.LogInformation(
-            "Wrote {Count} results ({Fallbacks} fallback) to {Output} in {Duration}.",
-            results.Count, fallbacks, output, duration);
-        return new BatchSummary(results.Count, fallbacks, duration, output);
+            "Wrote {Count} results ({Fallbacks} fallback, {NotAnalysed} not analysed) to {Output} in {Duration}.",
+            results.Count, fallbacks, notAnalysed, output, duration);
+        return new BatchSummary(results.Count, fallbacks, duration, output, notAnalysed);
+    }
+
+    // Returns when nothing is pending, or when a live worker ran out of time (pending states stay pending then).
+    private async Task<IReadOnlyList<AnalysisState>> WaitForAnalysisAsync(
+        IReadOnlyList<int> ids,
+        BatchOptions settings,
+        CancellationToken cancellationToken)
+    {
+        var waitStart = timeProvider.GetUtcNow();
+        var poll = TimeSpan.FromSeconds(settings.PollIntervalSeconds);
+
+        while (true)
+        {
+            var states = await monitor.GetStatesAsync(ids, cancellationToken);
+            var pending = states.Count(s => s.IsPending);
+            if (pending == 0)
+            {
+                return states;
+            }
+
+            var now = timeProvider.GetUtcNow();
+            var elapsed = now - waitStart;
+            var heartbeat = await monitor.GetWorkerHeartbeatAsync(cancellationToken);
+            var alive = heartbeat is { } beat
+                && now.UtcDateTime - beat <= TimeSpan.FromSeconds(settings.WorkerHeartbeatMaxAgeSeconds);
+
+            if (!alive && elapsed >= TimeSpan.FromSeconds(settings.WorkerStartGraceSeconds))
+            {
+                throw new BatchWorkerUnavailableException(
+                    "Analysis worker is not running - start TicketTriage.Web (aspire run) and run the batch again; no output written.");
+            }
+
+            if (alive && elapsed >= TimeSpan.FromSeconds(settings.WaitTimeoutSeconds))
+            {
+                logger.LogWarning(
+                    "Timed out after {Elapsed} with {Pending} ticket(s) still not analysed; exporting them with the deterministic fallback.",
+                    elapsed, pending);
+                return states;
+            }
+
+            logger.LogInformation("Waiting for analysis: {Pending} of {Total} ticket(s) pending.", pending, states.Count);
+            await Task.Delay(poll, timeProvider, cancellationToken);
+        }
     }
 
     /// <summary>
@@ -110,10 +187,7 @@ public sealed class BatchRunner(
         }
     }
 
-    // The pipeline has no fallback flag, but its validator rejects a blank DraftComment on every successful
-    // path while the fallback factory always leaves it null. TriageResult.From applies the same blank test.
-    internal static bool IsFallback(TriageSuggestion suggestion) =>
-        string.IsNullOrWhiteSpace(suggestion.DraftComment);
+    internal static bool IsFallback(TriageSuggestion suggestion) => suggestion.IsFallback;
 
     // The temp file lives next to the target so File.Move is a same-volume rename and never leaves a half-written result.json.
     private static async Task WriteAtomicallyAsync(
@@ -138,15 +212,5 @@ public sealed class BatchRunner(
         {
             File.Delete(temp);
         }
-    }
-
-    private static async IAsyncEnumerable<Ticket> ToAsyncEnumerable(IEnumerable<Ticket> tickets)
-    {
-        foreach (var ticket in tickets)
-        {
-            yield return ticket;
-        }
-
-        await Task.CompletedTask;
     }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using TicketTriage.Core.Domain;
 using TicketTriage.Infrastructure.Persistence;
 
 namespace TicketTriage.Infrastructure.Retrieval;
@@ -71,6 +72,7 @@ internal sealed class SimilarTicketIndexProvider : IDisposable
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var rows = await db.Tickets.AsNoTracking()
+            .Where(t => t.Origin == TicketOrigin.Training)
             .Where(t => t.Description != null && t.Description != "")
             .OrderBy(t => t.Id)
             .Select(t => new CorpusDocument(t.Id, t.Description!))

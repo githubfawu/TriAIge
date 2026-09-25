@@ -8,7 +8,7 @@ using TicketTriage.Infrastructure.Persistence;
 namespace TicketTriage.Infrastructure.Sources;
 
 /// <summary>
-/// Streams tickets with status "New" in (CreatedDate, Id) order. Keyset paging with a fresh context per batch, so no
+/// Streams non-training tickets with status "New" in (CreatedDate, Id) order. Keyset paging with a fresh context per batch, so no
 /// context or reader stays open across a <c>yield</c> while the consumer (the pipeline) works for seconds per ticket.
 /// </summary>
 internal sealed class DbTicketSource : ITicketSource
@@ -64,7 +64,7 @@ internal sealed class DbTicketSource : ITicketSource
             List<Ticket> batch;
             await using (var db = await _dbFactory.CreateDbContextAsync(cancellationToken))
             {
-                var query = db.Tickets.AsNoTracking().Include(t => t.Comments).AsSplitQuery().Where(t => t.StatusId == newStatusId);
+                var query = db.Tickets.AsNoTracking().Include(t => t.Comments).AsSplitQuery().Where(t => t.StatusId == newStatusId && t.Origin != TicketOrigin.Training);
                 if (lastCreated is { } d)
                 {
                     var id = lastId;

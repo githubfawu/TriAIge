@@ -12,11 +12,48 @@ public sealed class BatchRunnerTests : IDisposable
 
     public void Dispose() => _dir.Dispose();
 
-    private BatchRunner CreateRunner(string input, string output, ITriagePipeline? pipeline = null) => new(
-        Options.Create(new BatchOptions { Input = input, Output = output }),
-        pipeline ?? new FakeTriagePipeline(),
-        TimeProvider.System,
-        NullLogger<BatchRunner>.Instance);
+    private readonly TestTimeProvider _time = new();
+
+    private BatchRunner CreateRunner(
+        string input,
+        string output,
+        FakeAnalysis? analysis = null,
+        IFallbackSuggestionProvider? fallback = null,
+        Action<BatchOptions>? configure = null)
+    {
+        var options = new BatchOptions
+        {
+            Input = input,
+            Output = output,
+            PollIntervalSeconds = 5,
+            WaitTimeoutSeconds = 100,
+            WorkerHeartbeatMaxAgeSeconds = 30,
+            WorkerStartGraceSeconds = 20,
+        };
+        configure?.Invoke(options);
+        analysis ??= new FakeAnalysis();
+        return new BatchRunner(
+            Options.Create(options), analysis, analysis, fallback ?? new FakeFallback(), _time, NullLogger<BatchRunner>.Instance);
+    }
+
+    private FakeAnalysis Analysis(
+        Func<int, Ticket, TriageSuggestion>? suggest = null,
+        Func<int, int, bool>? isPending = null,
+        bool workerAlive = true)
+    {
+        var analysis = new FakeAnalysis(suggest);
+        if (isPending is not null)
+        {
+            analysis.IsPending = isPending;
+        }
+
+        if (workerAlive)
+        {
+            analysis.Heartbeat = () => _time.UtcNow;
+        }
+
+        return analysis;
+    }
 
     private string WriteInput(params string[] keys)
     {
@@ -76,7 +113,8 @@ public sealed class BatchRunnerTests : IDisposable
     {
         var output = _dir.Combine("result.json");
 
-        await CreateRunner(WriteKeylessEnvelope(25), output, new CyclingPipeline()).RunAsync(TestContext.Current.CancellationToken);
+        await CreateRunner(WriteKeylessEnvelope(25), output, new FakeAnalysis(Suggestions.Cycling))
+            .RunAsync(TestContext.Current.CancellationToken);
 
         var records = ReadArray(output).GetProperty("records").EnumerateArray().ToList();
         records.Should().HaveCount(25);
@@ -100,7 +138,8 @@ public sealed class BatchRunnerTests : IDisposable
     {
         var output = _dir.Combine("result.json");
 
-        await CreateRunner(WriteKeylessEnvelope(25), output, new CyclingPipeline()).RunAsync(TestContext.Current.CancellationToken);
+        await CreateRunner(WriteKeylessEnvelope(25), output, new FakeAnalysis(Suggestions.Cycling))
+            .RunAsync(TestContext.Current.CancellationToken);
 
         var records = ReadArray(output).GetProperty("records").EnumerateArray().ToList();
         records.Should().HaveCount(25);
@@ -122,7 +161,7 @@ public sealed class BatchRunnerTests : IDisposable
     {
         var output = _dir.Combine("result.json");
 
-        await CreateRunner(WriteInput("A-1", "A-2"), output, new FakeTriagePipeline(fallbackKeys: ["A-2"]))
+        await CreateRunner(WriteInput("A-1", "A-2"), output, new FakeAnalysis(Suggestions.Standard(["A-2"])))
             .RunAsync(TestContext.Current.CancellationToken);
 
         var fallback = ReadArray(output)[1];
@@ -145,9 +184,9 @@ public sealed class BatchRunnerTests : IDisposable
     public async Task RunAsync_FallbackTicket_StillWrittenWithEmptyComments_PerAC3()
     {
         var output = _dir.Combine("result.json");
-        var pipeline = new FakeTriagePipeline(fallbackKeys: ["A-2"]);
+        var analysis = new FakeAnalysis(Suggestions.Standard(["A-2"]));
 
-        var summary = await CreateRunner(WriteInput("A-1", "A-2"), output, pipeline)
+        var summary = await CreateRunner(WriteInput("A-1", "A-2"), output, analysis)
             .RunAsync(TestContext.Current.CancellationToken);
 
         var entries = ReadArray(output).EnumerateArray().ToList();
@@ -155,6 +194,7 @@ public sealed class BatchRunnerTests : IDisposable
         entries[0].GetProperty("All Comments").GetArrayLength().Should().Be(1);
         entries[1].GetProperty("All Comments").GetArrayLength().Should().Be(0);
         summary.Fallbacks.Should().Be(1);
+        summary.NotAnalysed.Should().Be(0);
     }
 
     [Fact]
@@ -184,9 +224,12 @@ public sealed class BatchRunnerTests : IDisposable
     public async Task RunAsync_DuplicateKeys_AreBothKept()
     {
         var output = _dir.Combine("result.json");
+        var analysis = Analysis();
 
-        var summary = await CreateRunner(WriteInput("A-1", "A-1"), output)
+        var summary = await CreateRunner(WriteInput("A-1", "A-1"), output, analysis)
             .RunAsync(TestContext.Current.CancellationToken);
+
+        analysis.LastIngested.Should().HaveCount(2);
 
         ReadArray(output).GetArrayLength().Should().Be(2);
         summary.Total.Should().Be(2);
@@ -215,29 +258,188 @@ public sealed class BatchRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_PipelineCancelled_LeavesExistingOutputUntouched()
+    public async Task RunAsync_CancelledWhileWaiting_LeavesExistingOutputUntouched_PerAC6()
     {
         var output = _dir.Combine("result.json");
         await File.WriteAllTextAsync(output, "old", TestContext.Current.CancellationToken);
+        using var cts = new CancellationTokenSource();
+        var analysis = Analysis(isPending: (_, id) => id == 2);
+        analysis.OnPoll = poll =>
+        {
+            if (poll == 2)
+            {
+                cts.Cancel();
+            }
+        };
 
-        var act = () => CreateRunner(WriteInput("A-1", "A-2"), output, new FakeTriagePipeline(cancelAtIndex: 1))
-            .RunAsync(TestContext.Current.CancellationToken);
+        var act = () => CreateRunner(WriteInput("A-1", "A-2"), output, analysis).RunAsync(cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
         File.ReadAllText(output).Should().Be("old");
+        Directory.GetFiles(_dir.Path).Select(Path.GetFileName).Should().NotContain(n => n!.EndsWith(".tmp"));
     }
 
     [Fact]
-    public async Task RunAsync_FewerResultsThanTickets_ThrowsAndWritesNothing()
+    public async Task RunAsync_IngestorReturnsWrongCount_ThrowsAndWritesNothing()
     {
         var output = _dir.Combine("result.json");
+        var runner = new BatchRunner(
+            Options.Create(new BatchOptions { Input = WriteInput("A-1", "A-2"), Output = output }),
+            new ShortIngestor(),
+            new FakeAnalysis(),
+            new FakeFallback(),
+            _time,
+            NullLogger<BatchRunner>.Instance);
 
-        var act = () => CreateRunner(WriteInput("A-1", "A-2"), output, new ScriptedPipeline(1))
-            .RunAsync(TestContext.Current.CancellationToken);
+        var act = () => runner.RunAsync(TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         File.Exists(output).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_IngestsChallengeTicketsWithPositionalKeys_PerAC6()
+    {
+        var analysis = Analysis();
+
+        await CreateRunner(WriteKeylessEnvelope(3), _dir.Combine("result.json"), analysis)
+            .RunAsync(TestContext.Current.CancellationToken);
+
+        analysis.LastOrigin.Should().Be(TicketOrigin.Challenge);
+        analysis.LastIngested.Select(t => t.Key).Should().Equal("#1", "#2", "#3");
+    }
+
+    [Fact]
+    public async Task RunAsync_ShuffledCompletion_KeepsChallengeOrderAndOwnSuggestions_PerAC6()
+    {
+        var output = _dir.Combine("result.json");
+        var doneAtPoll = new Dictionary<int, int> { [3] = 2, [1] = 4, [2] = 3 };
+        var analysis = Analysis(isPending: (poll, id) => poll < doneAtPoll[id]);
+
+        var summary = await CreateRunner(WriteInput("A-1", "A-2", "A-3"), output, analysis)
+            .RunAsync(TestContext.Current.CancellationToken);
+
+        var entries = ReadArray(output).EnumerateArray().ToList();
+        entries.Select(e => e.GetProperty("Issue key").GetString()).Should().Equal("A-1", "A-2", "A-3");
+        entries.Select(e => e.GetProperty("Assignee").GetString()).Should().Equal("A-1", "A-2", "A-3");
+        analysis.Polls.Should().Be(4);
+        summary.NotAnalysed.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RunAsync_AllAnalysedButNoHeartbeat_ExportsImmediately_PerAC6()
+    {
+        var output = _dir.Combine("result.json");
+        var analysis = Analysis(workerAlive: false);
+
+        var summary = await CreateRunner(WriteInput("A-1", "A-2"), output, analysis)
+            .RunAsync(TestContext.Current.CancellationToken);
+
+        analysis.Polls.Should().Be(1);
+        summary.Total.Should().Be(2);
+        File.Exists(output).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RunAsync_WorkerAliveButTimeout_ExportsPendingWithFallbackAndCountsThem_PerAC6()
+    {
+        var output = _dir.Combine("result.json");
+        var analysis = Analysis(isPending: (_, id) => id == 2);
+        var fallback = new FakeFallback();
+
+        var summary = await CreateRunner(WriteInput("A-1", "A-2", "A-3"), output, analysis, fallback)
+            .RunAsync(TestContext.Current.CancellationToken);
+
+        summary.NotAnalysed.Should().Be(1);
+        summary.Fallbacks.Should().Be(1);
+        fallback.Calls.Should().ContainSingle().Which.Key.Should().Be("A-2");
+        var entries = ReadArray(output).EnumerateArray().ToList();
+        entries.Select(e => e.GetProperty("All Comments").GetArrayLength()).Should().Equal(1, 0, 1);
+        entries[1].GetProperty("Assignee").GetString().Should().Be("fallback");
+        _time.UtcNow.Should().BeOnOrAfter(new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddSeconds(100));
+    }
+
+    [Fact]
+    public async Task RunAsync_DuplicateKeysPending_FallbackComputedOnceAndUsedForBothPositions()
+    {
+        var output = _dir.Combine("result.json");
+        var fallback = new FakeFallback();
+
+        var summary = await CreateRunner(
+                WriteInput("A-1", "A-1"), output, Analysis(isPending: (_, _) => true), fallback)
+            .RunAsync(TestContext.Current.CancellationToken);
+
+        fallback.Calls.Should().ContainSingle();
+        summary.NotAnalysed.Should().Be(2);
+        ReadArray(output).GetArrayLength().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task RunAsync_PendingAndNoHeartbeatPastGrace_ThrowsWorkerNotRunningAndKeepsOldOutput_PerAC6()
+    {
+        var output = _dir.Combine("result.json");
+        await File.WriteAllTextAsync(output, "old", TestContext.Current.CancellationToken);
+        var analysis = Analysis(isPending: (_, _) => true, workerAlive: false);
+
+        var act = () => CreateRunner(WriteInput("A-1"), output, analysis).RunAsync(TestContext.Current.CancellationToken);
+
+        (await act.Should().ThrowAsync<BatchWorkerUnavailableException>()).Which.Message.Should().Contain("start TicketTriage.Web");
+        File.ReadAllText(output).Should().Be("old");
         Directory.GetFiles(_dir.Path).Select(Path.GetFileName).Should().NotContain(n => n!.EndsWith(".tmp"));
+        _time.UtcNow.Should().BeOnOrAfter(new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddSeconds(20));
+    }
+
+    [Fact]
+    public async Task RunAsync_PendingAndStaleHeartbeat_ThrowsWorkerNotRunningWithoutFile_PerAC6()
+    {
+        var output = _dir.Combine("result.json");
+        var analysis = Analysis(isPending: (_, _) => true, workerAlive: false);
+        var start = _time.UtcNow;
+        analysis.Heartbeat = () => start.AddMinutes(-10);
+
+        var act = () => CreateRunner(WriteInput("A-1"), output, analysis).RunAsync(TestContext.Current.CancellationToken);
+
+        await act.Should().ThrowAsync<BatchWorkerUnavailableException>();
+        File.Exists(output).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_WorkerStartsWithinGrace_WaitsAndExports_PerAC6()
+    {
+        var output = _dir.Combine("result.json");
+        var analysis = Analysis(isPending: (poll, _) => poll < 3, workerAlive: false);
+
+        var summary = await CreateRunner(WriteInput("A-1"), output, analysis).RunAsync(TestContext.Current.CancellationToken);
+
+        summary.NotAnalysed.Should().Be(0);
+        File.Exists(output).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0, 1, 1, 1)]
+    [InlineData(1, 0, 1, 1)]
+    [InlineData(1, 1, 0, 1)]
+    [InlineData(1, 1, 1, 0)]
+    [InlineData(-1, 1, 1, 1)]
+    public void BatchOptions_NonPositiveWaitSetting_IsInvalid_PerAC6(int poll, int timeout, int maxAge, int grace)
+    {
+        BatchOptions.IsValid(new BatchOptions
+        {
+            PollIntervalSeconds = poll,
+            WaitTimeoutSeconds = timeout,
+            WorkerHeartbeatMaxAgeSeconds = maxAge,
+            WorkerStartGraceSeconds = grace,
+        }).Should().BeFalse();
+    }
+
+    [Fact]
+    public void BatchOptions_Defaults_AreValid_PerAC6() => BatchOptions.IsValid(new BatchOptions()).Should().BeTrue();
+
+    private sealed class ShortIngestor : ITicketIngestor
+    {
+        public Task<IReadOnlyList<IngestResult>> IngestAsync(
+            IReadOnlyList<Ticket> tickets, TicketOrigin origin, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<IngestResult>>([new IngestResult(1, IngestOutcome.Created)]);
     }
 
     [Fact]
@@ -262,13 +464,15 @@ public sealed class BatchRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_CancelledAfterStreamBeforeWrite_LeavesOldOutputUntouched()
+    public async Task RunAsync_CancelledAfterAnalysisBeforeWrite_LeavesOldOutputUntouched()
     {
         var output = _dir.Combine("result.json");
         await File.WriteAllTextAsync(output, "old", TestContext.Current.CancellationToken);
         using var cts = new CancellationTokenSource();
+        var fallback = new CancellingFallback(cts);
 
-        var act = () => CreateRunner(WriteInput("A-1"), output, new ScriptedPipeline(1, () => cts))
+        // Alive worker, pending forever: the run times out, builds the fallback (which cancels) and must not write.
+        var act = () => CreateRunner(WriteInput("A-1"), output, Analysis(isPending: (_, _) => true), fallback)
             .RunAsync(cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
@@ -277,15 +481,25 @@ public sealed class BatchRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_OutputIsExistingDirectory_ThrowsBatchInputExceptionBeforePipeline()
+    public async Task RunAsync_OutputIsExistingDirectory_ThrowsBatchInputExceptionBeforeIngest()
     {
         var output = _dir.Combine("result.json");
         Directory.CreateDirectory(output);
-        var pipeline = new ScriptedPipeline(1, () => throw new InvalidOperationException("pipeline ran"));
+        var analysis = new FakeAnalysis { ThrowOnIngest = true };
 
-        var act = () => CreateRunner(WriteInput("A-1"), output, pipeline).RunAsync(TestContext.Current.CancellationToken);
+        var act = () => CreateRunner(WriteInput("A-1"), output, analysis).RunAsync(TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<BatchInputException>();
+        analysis.IngestCalls.Should().Be(0);
+    }
+
+    private sealed class CancellingFallback(CancellationTokenSource cts) : IFallbackSuggestionProvider
+    {
+        public async Task<TriageSuggestion> CreateAsync(Ticket ticket, CancellationToken cancellationToken)
+        {
+            await cts.CancelAsync();
+            return await new FakeFallback().CreateAsync(ticket, CancellationToken.None);
+        }
     }
 
     [Fact]

@@ -24,7 +24,7 @@ var llm = new LlmParameters(
     OllamaEndpoint: AddOptionalParameter("ollama-endpoint", fallback: "http://localhost:11434"),
     OllamaModel: AddOptionalParameter("ollama-model", fallback: "qwen2.5:1.5b"));
 
-builder.AddProject<Projects.TicketTriage_Web>("web")
+var web = builder.AddProject<Projects.TicketTriage_Web>("web")
     .WithReference(sqlite)
     .WaitFor(sqlite)
     .WithEnvironment("TrainingData__Path", Path.Combine(dataDirectory, trainingFile))
@@ -32,15 +32,15 @@ builder.AddProject<Projects.TicketTriage_Web>("web")
     .WithExternalHttpEndpoints()
     .WithHttpHealthCheck("/health");
 
-// Started manually from the dashboard; writes data/result.json.
+// Started manually from the dashboard (explicit start; WaitFor(web) then waits for Web to be healthy, i.e. the analysis worker
+// is up); ingests the challenge tickets and exports data/result.json from the worker's suggestions. No LLM configuration needed.
 builder.AddProject<Projects.TicketTriage_Batch>("batch")
     .WithReference(sqlite)
     .WaitFor(sqlite)
+    .WaitFor(web)
     .WithArgs(
         "--input", Path.Combine(dataDirectory, challengeFile),
         "--output", Path.Combine(dataDirectory, "result.json"))
-    .WithEnvironment("TrainingData__Path", Path.Combine(dataDirectory, trainingFile))
-    .WithLlmConfiguration(llm)
     .WithExplicitStart();
 
 builder.Build().Run();

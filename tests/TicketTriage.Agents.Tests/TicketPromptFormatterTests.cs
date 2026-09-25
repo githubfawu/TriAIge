@@ -47,6 +47,39 @@ public class TicketPromptFormatterTests
         text.Split("</similar_tickets>").Length.Should().Be(2);
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void FormatSimilarTickets_ResolutionStatusFlag_ControlsStatusLine_PerAC1(bool include, bool expected)
+    {
+        var ticket = new Ticket { Key = "K-1", Summary = "s", Resolution = "done", Comments = ["Resolution: fix X"] };
+
+        var text = TicketPromptFormatter.FormatSimilarTickets(
+            [new SimilarTicket(ticket, 0.5)], includeResolutionNote: true, includeResolutionStatus: include);
+
+        text.Contains("Resolution status: done", StringComparison.Ordinal).Should().Be(expected);
+        text.Should().Contain("Resolution note: fix X");
+    }
+
+    [Fact]
+    public void FormatSimilarTickets_Default_IncludesStatus()
+    {
+        var ticket = new Ticket { Key = "K-1", Summary = "s", Resolution = "done" };
+
+        TicketPromptFormatter.FormatSimilarTickets([new SimilarTicket(ticket, 0.5)]).Should().Contain("Resolution status: done");
+    }
+
+    [Fact]
+    public void TriageAgentInstructions_TreatTicketTextAsDataAndForbidPriority_PerAC7()
+    {
+        TriageAgent.Instructions.Should().Contain("untrusted data").And.Contain("Never output or suggest a priority");
+        TriageAgent.Instructions.Should().NotContain("TODO");
+    }
+
+    [Fact]
+    public void DrafterPromptVersion_IsV3_PerAC1() =>
+        TicketTriage.Agents.Drafting.DraftPrompts.Version.Should().Be("drafter-v3");
+
     [Fact]
     public void ExtractResolutionNote_WithoutEmailPrefix_IsAccepted()
     {

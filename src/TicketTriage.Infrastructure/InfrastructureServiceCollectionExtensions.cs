@@ -2,14 +2,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
+using TicketTriage.Infrastructure.Analysis;
 using TicketTriage.Infrastructure.Import;
+using TicketTriage.Infrastructure.Ingestion;
 using TicketTriage.Infrastructure.Persistence;
 using TicketTriage.Infrastructure.Pipeline;
 using TicketTriage.Infrastructure.Retrieval;
 using TicketTriage.Infrastructure.Routing;
 using TicketTriage.Infrastructure.Sources;
-using TicketTriage.Infrastructure.Stubs;
 
 namespace TicketTriage.Infrastructure;
 
@@ -30,6 +32,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<ITriageFailureStore, EfTriageFailureStore>();
         services.Configure<TrainingDataOptions>(configuration.GetSection(TrainingDataOptions.SectionName));
         services.AddScoped<TrainingDataImporter>();
+        services.TryAddScoped<ITicketIngestor, EfTicketIngestor>();
+        services.TryAddScoped<IReviewService, TicketTriage.Infrastructure.Review.EfReviewService>();
+        services.TryAddScoped<ITriageMetricsService, TicketTriage.Infrastructure.Review.EfTriageMetricsService>();
 
         services.TryAddSingleton<LookupNamesProvider>();
         services.TryAddSingleton<SimilarTicketIndexProvider>();
@@ -38,14 +43,18 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<IRoutingStatisticsSource, RoutingStatisticsProvider>();
         services.TryAddScoped<IRoutingResolver, StatisticsRoutingResolver>();
 
-        // TODO: implement - replace the remaining stubs with real implementations (Agents project for LLM-backed ones).
-        services.TryAddScoped<ITicketClassifier, StubTicketClassifier>();
-        services.TryAddScoped<IResolutionDrafter, StubResolutionDrafter>();
-
         services.AddOptions<TriageOptions>()
             .Bind(configuration.GetSection(TriageOptions.SectionName))
             .Validate(TriageOptions.IsValid, "Triage settings are out of range.")
             .ValidateOnStart();
+        services.AddOptions<AnalysisOptions>()
+            .Bind(configuration.GetSection(AnalysisOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<AnalysisOptions>, AnalysisOptionsValidator>());
+        services.TryAddScoped<TicketClaimStore>();
+        services.TryAddSingleton<IAnalysisMonitor, EfAnalysisMonitor>();
+        services.TryAddSingleton<IFallbackSuggestionProvider, DeterministicFallbackProvider>();
+        services.TryAddSingleton<IAnalysisCycle, AnalysisCycle>();
         services.TryAddSingleton<TicketNormalizer>();
         services.AddScoped<ITriagePipeline, TriagePipeline>();
 

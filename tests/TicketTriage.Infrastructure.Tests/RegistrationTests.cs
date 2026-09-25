@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
+using TicketTriage.Core.Domain;
 using TicketTriage.Infrastructure.Pipeline;
 using TicketTriage.Infrastructure.Retrieval;
 using TicketTriage.Infrastructure.Routing;
@@ -23,7 +24,27 @@ public class RegistrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddTriageInfrastructure(config);
+        services.AddScoped<ITicketClassifier, FakeClassifier>();
+        services.AddScoped<IResolutionDrafter, FakeDrafter>();
         return services.BuildServiceProvider();
+    }
+
+    private sealed class FakeClassifier : ITicketClassifier
+    {
+        public Task<TicketClassification> ClassifyAsync(
+            Ticket ticket, IReadOnlyList<SimilarTicket> similarTickets, CancellationToken cancellationToken) =>
+            Task.FromResult(new TicketClassification(WorkType.Incident, [], Urgency.Medium, Impact.Moderate));
+    }
+
+    private sealed class FakeDrafter : IResolutionDrafter
+    {
+        public Task<ResolutionDraft> DraftAsync(
+            Ticket ticket,
+            TicketClassification classification,
+            RoutingDecision routing,
+            IReadOnlyList<SimilarTicket> similarTickets,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new ResolutionDraft(ResolutionStatus.Done, "ok"));
     }
 
     [Fact]
