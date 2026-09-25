@@ -97,6 +97,10 @@ public partial class Review : IAsyncDisposable
 
     private string FieldClass(SuggestionField field) => Differs(field) ? "tt-field-changed" : "";
 
+    // An empty original is the common case for challenge tickets; "was: —" there is noise.
+    private string WasText(SuggestionField field) =>
+        OriginalDisplay(field) is "—" ? "not set in original" : $"was: {OriginalDisplay(field)}";
+
     private string OriginalDisplay(SuggestionField field) => (_review is null ? null : field switch
     {
         SuggestionField.WorkType => _review.Ticket.WorkType,

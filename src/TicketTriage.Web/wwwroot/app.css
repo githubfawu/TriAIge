@@ -531,27 +531,23 @@ body {
 .tt-grid.mud-table {
     border: 1px solid #e5e7eb;
     border-radius: 10px;
-    overflow: hidden;
+    overflow: clip;
     background: #ffffff;
 }
 
 .tt-page .tt-grid .mud-table-container {
-    max-height: calc(100vh - 290px);
     border: 0;
     border-radius: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
+    overflow: visible;
 }
 
 .tt-tickets-grid .mud-table-root {
-    min-width: 900px;
     table-layout: auto;
 }
 
 .tt-grid .mud-table-head .mud-table-cell {
     position: sticky;
-    top: 0;
+    top: var(--mud-appbar-height, 56px);
     z-index: 1;
     height: 38px;
     padding-top: 0;
@@ -577,7 +573,7 @@ body {
 }
 
 .tt-col-key {
-    width: 110px;
+    width: 1%;
     font-variant-numeric: tabular-nums;
     color: #374151;
     font-weight: 500;
@@ -586,7 +582,7 @@ body {
 .tt-col-summary {
     width: 100%;
     max-width: 0;
-    min-width: 260px;
+    min-width: 160px;
 }
 
 .tt-ellipsis {
@@ -814,26 +810,23 @@ body {
 
 .tt-facts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(140px, auto) minmax(0, 1fr));
-    gap: 0;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 14px 20px;
     margin: 0;
+    padding-top: 14px;
     border-top: 1px solid #eef0f3;
 }
 
-.tt-facts dt,
-.tt-facts dd {
-    margin: 0;
-    padding: 9px 0;
-    border-bottom: 1px solid #eef0f3;
-    font-size: 0.8125rem;
-}
-
 .tt-facts dt {
+    margin: 0 0 2px;
+    font-size: 0.72rem;
     color: #6b7280;
 }
 
 .tt-facts dd {
-    padding-right: 16px;
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 500;
     color: #111827;
     overflow-wrap: anywhere;
 }
@@ -1076,16 +1069,19 @@ body {
 
 @media (max-width: 1100px) {
     .tt-detail {
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 16px;
+    }
+}
+
+@media (max-width: 760px) {
+    .tt-detail {
         grid-template-columns: minmax(0, 1fr);
     }
 
     .tt-side {
         position: static;
         order: -1;
-    }
-
-    .tt-facts {
-        grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
     }
 }
 
@@ -1141,8 +1137,55 @@ body {
     font-size: 0.85rem;
 }
 
-/* The table takes the remaining viewport height; the page itself never scrolls vertically. */
-.tt-page .tt-tickets-page .tt-grid .mud-table-container,
-.tt-tickets-page .tt-tickets-grid .mud-table-container {
-    max-height: calc(100vh - 56px - 40px - 48px - 150px);
+
+
+/* Search and filters share one row; the filter strip scrolls sideways instead of wrapping. */
+.tt-toolbar-single {
+    flex-wrap: wrap;
+    row-gap: 8px;
+}
+
+.tt-toolbar-single .tt-search {
+    flex: 1 1 240px;
+    max-width: 320px;
+}
+
+.tt-toolbar-single .tt-filters {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+/* Hide the least important columns before the table would overflow; only phones scroll sideways. */
+@media (max-width: 900px) {
+    .tt-tickets-grid .tt-col-type {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .tt-toolbar-single {
+        flex-wrap: wrap;
+    }
+
+    .tt-toolbar-single .tt-search {
+        flex: 1 1 100%;
+    }
+
+    .tt-page .tt-grid .mud-table-container {
+        overflow-x: auto;
+    }
+
+    .tt-tickets-grid .mud-table-root {
+        min-width: 560px;
+    }
+}
+
+/* Labels and owner badges never wrap inside the narrow side panel. */
+.tt-field-label > span:first-child,
+.owner-badge {
+    white-space: nowrap;
+}
+
+.tt-field-row .tt-field-label {
+    gap: 4px;
 }

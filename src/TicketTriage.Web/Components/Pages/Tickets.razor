@@ -15,7 +15,7 @@
     </MudButton>
 </div>
 
-<div class="tt-toolbar">
+<div class="tt-toolbar tt-toolbar-single">
     <label class="tt-search">
         <MudIcon Icon="@Icons.Material.Outlined.Search" Size="Size.Small" />
         <input class="tt-search-input" type="search" placeholder="Search by summary or key…" aria-label="Search tickets"
@@ -60,7 +60,7 @@
                 }
             </CellTemplate>
         </TemplateColumn>
-        <TemplateColumn Title="Type" SortBy="@(x => ShownWorkType(x))" CellClass="tt-col-type">
+        <TemplateColumn Title="Type" SortBy="@(x => ShownWorkType(x))" CellClass="tt-col-type" HeaderClass="tt-col-type">
             <CellTemplate>
                 @{ var type = ShownWorkType(context.Item); }
                 <span class="tt-type" title="@WorkTypeTooltip(context.Item)">
