@@ -1,6 +1,7 @@
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using TicketTriage.Agents.Llm;
 using TicketTriage.Agents.Services;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
@@ -42,9 +43,13 @@ internal sealed class LlmTicketClassifier : ITicketClassifier
     {
         _logger.LogDebug("Classifying ticket {TicketKey} with prompt {PromptVersion}.", ticket.Key, ClassifierPrompts.Version);
 
-        var response = await _agent.RunAsync<ClassificationDto>(
-            ClassifierPrompts.BuildUserMessage(ticket, similarTickets),
-            cancellationToken: cancellationToken);
+        var message = ClassifierPrompts.BuildUserMessage(ticket, similarTickets);
+        var response = await LlmCallLog.TimeAsync(
+            _logger,
+            "Classifier",
+            ticket.Key,
+            message.Length,
+            () => _agent.RunAsync<ClassificationDto>(message, cancellationToken: cancellationToken));
 
         return response.Result.ToDomain(_catalog);
     }

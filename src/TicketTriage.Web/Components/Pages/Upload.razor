@@ -59,7 +59,7 @@
         @if (_session.Counts.Locked > 0)
         {
             <MudAlert Severity="Severity.Warning" Dense Class="mt-2">
-                @_session.Counts.Locked ticket(s) are locked (already reviewed); the export contains the stored suggestion instead of a new analysis. For records without an Issue key that suggestion may belong to a different ticket if a different file with keyless records was uploaded earlier.
+                @_session.Counts.Locked ticket(s) are locked (already reviewed); the file changes their content, but the export contains the reviewed suggestion for the earlier version instead of a new analysis.
             </MudAlert>
         }
     </MudPaper>

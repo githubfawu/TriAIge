@@ -46,14 +46,28 @@ public sealed class ChallengeUploadServiceTests
     private static string Envelope(int count) => "{\"meta\":{\"x\":1},\"records\":[" + Records(count) + "]}";
 
     [Fact]
-    public async Task UploadAsync_TwentyKeylessRecords_IngestsAsChallengePositionalKeys_PerAC1()
+    public async Task UploadAsync_TwentyKeylessRecords_IngestsAsChallengeContentKeys_PerAC1()
     {
         var session = await CreateService().UploadAsync(Json(Envelope(20)), Xunit.TestContext.Current.CancellationToken);
 
         _analysis.LastOrigin.Should().Be(TicketOrigin.Challenge);
-        _analysis.LastIngested.Select(t => t.Key).Should().Equal(Enumerable.Range(1, 20).Select(i => "#" + i));
+        _analysis.LastIngested.Select(t => t.Key).Should().OnlyHaveUniqueItems()
+            .And.AllSatisfy(k => k.Should().MatchRegex("^#[0-9a-f]{16}$"));
         session.TicketIds.Should().HaveCount(20);
         session.Counts.Should().Be(new IngestCounts(20, 0, 0, 0));
+    }
+
+    [Fact]
+    public async Task UploadAsync_DifferentKeylessFile_CreatesNewTicketsInsteadOfOverwriting()
+    {
+        var service = CreateService();
+        var first = await service.UploadAsync(Json(Envelope(2)), Xunit.TestContext.Current.CancellationToken);
+
+        var second = await service.UploadAsync(
+            Json("""[{"Summary":"other 1"},{"Summary":"other 2"}]"""), Xunit.TestContext.Current.CancellationToken);
+
+        second.Counts.Should().Be(new IngestCounts(2, 0, 0, 0));
+        second.TicketIds.Should().NotIntersectWith(first.TicketIds);
     }
 
     [Fact]
@@ -114,7 +128,7 @@ public sealed class ChallengeUploadServiceTests
     {
         var service = CreateService();
         await service.UploadAsync(Json(Envelope(4)), Xunit.TestContext.Current.CancellationToken);
-        _analysis.LockedKeys.Add("#2");
+        _analysis.LockedKeys.Add(_analysis.LastIngested[1].Key);
 
         var second = await service.UploadAsync(Json(Envelope(4)), Xunit.TestContext.Current.CancellationToken);
 
@@ -240,7 +254,7 @@ public sealed class ChallengeUploadServiceTests
         records.Should().HaveCount(20);
         records.Select(r => r.EnumerateObject().Any(p => p.Name == "Issue key")).Should().OnlyContain(has => !has);
         records.Select(r => r.GetProperty("Summary").GetString()).Should().Equal(Enumerable.Range(1, 20).Select(i => "s" + i));
-        records[0].GetProperty("Assignee").GetString().Should().Be("#1");
+        records[0].GetProperty("Assignee").GetString().Should().Be(_analysis.LastIngested[0].Key);
     }
 
     [Fact]

@@ -298,7 +298,7 @@ public sealed class BatchRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_IngestsChallengeTicketsWithPositionalKeys_PerAC6()
+    public async Task RunAsync_IngestsChallengeTicketsWithContentKeys_PerAC6()
     {
         var analysis = Analysis();
 
@@ -306,7 +306,8 @@ public sealed class BatchRunnerTests : IDisposable
             .RunAsync(TestContext.Current.CancellationToken);
 
         analysis.LastOrigin.Should().Be(TicketOrigin.Challenge);
-        analysis.LastIngested.Select(t => t.Key).Should().Equal("#1", "#2", "#3");
+        analysis.LastIngested.Select(t => t.Key).Should().HaveCount(3).And.OnlyHaveUniqueItems()
+            .And.AllSatisfy(k => k.Should().MatchRegex("^#[0-9a-f]{16}$"));
     }
 
     [Fact]

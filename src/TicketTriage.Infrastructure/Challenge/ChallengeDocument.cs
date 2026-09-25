@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using TicketTriage.Core.Domain;
@@ -33,13 +35,28 @@ public sealed class ChallengeDocument
         DuplicateKeys = duplicateKeys;
     }
 
-    /// <summary>One ticket per record, in file order. Records without <c>Issue key</c> get the key <c>#n</c> (1-based).</summary>
+    /// <summary>
+    /// One ticket per record, in file order. Records without <c>Issue key</c> get a <see cref="ContentKey"/>, so keyless
+    /// records of different files never share a stored row, while re-reading the same file yields the same keys.
+    /// </summary>
     public IReadOnlyList<Ticket> Tickets { get; }
 
-    /// <summary>Real (non-positional) keys that occur more than once.</summary>
+    /// <summary>Real (file-provided) keys that occur more than once.</summary>
     public IReadOnlyList<string> DuplicateKeys { get; }
 
+    /// <summary>1-based display position (<c>#n</c>); not an identity, it repeats across files.</summary>
     public static string PositionalKey(int zeroBasedIndex) => $"#{zeroBasedIndex + 1}";
+
+    /// <summary>
+    /// <c>#</c> + 16 hex chars of the SHA-256 of the record JSON. A positional key would let a different keyless file
+    /// overwrite the rows of an earlier one; identical records share a key and therefore one analysis.
+    /// </summary>
+    public static string ContentKey(JsonObject record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(record.ToJsonString()));
+        return "#" + Convert.ToHexStringLower(hash.AsSpan(0, 8));
+    }
 
     /// <summary>Reads at most <see cref="MaxFileBytes"/> from the stream; more is rejected.</summary>
     public static async Task<ChallengeDocument> ReadAsync(Stream stream, CancellationToken cancellationToken)
@@ -102,6 +119,7 @@ public sealed class ChallengeDocument
 
         var recordObjects = new List<JsonObject>(array.Count);
         var tickets = new List<Ticket>(array.Count);
+        var realKeys = new List<string>();
         for (var i = 0; i < array.Count; i++)
         {
             if (array[i] is not JsonObject record)
@@ -125,12 +143,19 @@ public sealed class ChallengeDocument
             }
 
             recordObjects.Add(record);
-            tickets.Add(string.IsNullOrWhiteSpace(ticket.Key) ? ticket with { Key = PositionalKey(i) } : ticket);
+            if (string.IsNullOrWhiteSpace(ticket.Key))
+            {
+                tickets.Add(ticket with { Key = ContentKey(record) });
+            }
+            else
+            {
+                tickets.Add(ticket);
+                realKeys.Add(ticket.Key);
+            }
         }
 
-        var duplicates = tickets
-            .Where((t, i) => !string.IsNullOrWhiteSpace(t.Key) && t.Key != PositionalKey(i))
-            .GroupBy(t => t.Key)
+        var duplicates = realKeys
+            .GroupBy(k => k, StringComparer.Ordinal)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
             .ToList();

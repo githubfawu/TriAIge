@@ -7,8 +7,11 @@ using TicketTriage.Infrastructure.Pipeline;
 
 namespace TicketTriage.Infrastructure.Analysis;
 
-/// <summary>A ticket leased to this worker; <see cref="Claim"/> and <see cref="Version"/> identify the lease and payload when saving.</summary>
-internal sealed record ClaimedTicket(Ticket Ticket, DateTime Claim, long Version);
+/// <summary>
+/// A ticket leased to this worker; <see cref="Claim"/> and <see cref="Version"/> identify the lease and payload when saving.
+/// <see cref="IngestedAt"/> (UTC) only feeds the queue-wait log.
+/// </summary>
+internal sealed record ClaimedTicket(Ticket Ticket, DateTime Claim, long Version, DateTime? IngestedAt = null);
 
 /// <summary>Lease-based work queue over <c>Ticket</c> rows; every operation is one short statement or transaction, none spans an LLM call.</summary>
 internal sealed class TicketClaimStore(
@@ -98,7 +101,7 @@ internal sealed class TicketClaimStore(
             .Where(t => t.ClaimedAt == claim)
             .OrderBy(t => t.IngestedAt)
             .ThenBy(t => t.Id)
-            .Select(t => new { t.Id, t.SourcePayload, t.Version })
+            .Select(t => new { t.Id, t.SourcePayload, t.Version, t.IngestedAt })
             .ToListAsync(cancellationToken);
 
         List<ClaimedTicket> result = [];
@@ -112,7 +115,7 @@ internal sealed class TicketClaimStore(
             }
             else
             {
-                result.Add(new ClaimedTicket(ticket, claim, row.Version));
+                result.Add(new ClaimedTicket(ticket, claim, row.Version, row.IngestedAt));
             }
         }
 
