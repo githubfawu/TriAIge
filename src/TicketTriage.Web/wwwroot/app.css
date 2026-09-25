@@ -2109,3 +2109,7 @@ a.tt-attention:hover {
 .tt-final-row dd .tt-prio {
     align-self: flex-start;
 }
+
+.tt-final-source {
+    overflow-wrap: anywhere;
+}
