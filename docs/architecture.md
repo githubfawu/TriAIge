@@ -2,7 +2,7 @@
 
 How TicketTriage is built and how a ticket flows through it. Requirements: [requirements.md](requirements.md). Why it's built this way: [adr/](adr/).
 
-> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing (`StatisticsRoutingResolver`, majority vote from the training data) is implemented too; no stub remains. Batch (`BatchRunner`: challenge file → pipeline → result.json) is implemented as a **transitional** direct pipeline call ([features/batch-runner](features/batch-runner/README.md)); the target is ingest → worker → export from the DB (§5.4). Ingest, analysis worker and review persistence are planned (§5).
+> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing (`StatisticsRoutingResolver`, majority vote from the training data) is implemented too; no stub remains. Ingest (`EfTicketIngestor`), the analysis worker (`AnalysisWorker`/`AnalysisCycle`/`TicketClaimStore`) and review persistence (`EfReviewService`) are implemented (§5) — the pre-computed, human-in-the-loop flow described there is current behaviour, not a plan. Batch (`BatchRunner`) and the Web upload page (`/upload`) both follow it end to end: ingest → analysis worker → export `result.json` from the stored suggestions ([features/batch-runner](features/batch-runner/README.md), §5.4); neither calls the LLM or the pipeline directly any more.
 
 ## 1. System context
 
@@ -25,7 +25,6 @@ flowchart LR
     web --> db
     batch --> db
     web -- "IChatClient" --> llm
-    batch -. "IChatClient (today only, transitional)" .-> llm
     files -- "training import" --> web
     files -- "challenge file" --> batch
     batch -- "result.json" --> jury
@@ -33,7 +32,7 @@ flowchart LR
     batch -. OTel .-> dash
 ```
 
-All tickets share **one** pipeline implementation (FR-31). Target (decided 2026-09-25, planned): Batch has no LLM access of its own. It ingests the challenge tickets into `triage-db`, the analysis worker in Web analyses them like any ticket, and Batch exports `result.json` from the stored suggestions (§5.4). The dotted `batch → llm` edge is today's transitional direct pipeline call and disappears once ingest, worker and review persistence exist. The AppHost injects the connection string (`triage-db`) and the LLM configuration (`Llm__*`) from its user secrets.
+All tickets share **one** pipeline implementation (FR-31). Batch has no LLM access of its own: it ingests the challenge tickets into `triage-db`, the analysis worker in Web analyses them like any ticket, and Batch exports `result.json` from the stored suggestions (§5.4). The AppHost injects the connection string (`triage-db`) and the LLM configuration (`Llm__*`, Web project only) from its user secrets.
 
 ## 2. Projects and dependencies
 
@@ -126,10 +125,10 @@ flowchart LR
 | Orchestration | `ITriagePipeline` (analysis only, stream) | code: sequential, timeout, retry, failure log, fallback (FR-34…36) | implemented |
 | Input stream | `ITicketSource` | code | `DbTicketSource` implemented (streams `New` tickets from SQLite), registered in DI, no caller yet |
 | Failure log | `ITriageFailureStore` (`EfTriageFailureStore`) | code, `Ticket.Retries` + table `TriageFailure` | implemented |
-| Ingest | `ITicketIngestor` | code, saves tickets as `New`; also required for Batch (challenge tickets, §5.4) | planned |
-| Analysis worker | `BackgroundService` in Web | code, claims `New` tickets from the ingest path (lease `ClaimedAt`) and calls the pipeline (ADR-0002, §5); also required for Batch (§5.4) | planned |
-| Review persistence | `IReviewService` | code, decision + per-field edits + timestamps | planned |
-| Batch export from DB | `BatchRunner` | code, ingests challenge tickets and writes `result.json` from stored suggestions (§5.4) | planned; today direct pipeline call (transitional) |
+| Ingest | `ITicketIngestor` (`EfTicketIngestor`) | code, saves tickets as `New`; also used by Batch (challenge tickets, §5.4) | implemented |
+| Analysis worker | `BackgroundService` in Web (`AnalysisWorker`/`AnalysisCycle`/`TicketClaimStore`) | code, claims `New` tickets from the ingest path (lease `ClaimedAt`) and calls the pipeline (ADR-0002, §5); also serves Batch (§5.4) | implemented |
+| Review persistence | `IReviewService` (`EfReviewService`) | code, decision + per-field edits + timestamps, optimistic concurrency on `Ticket.Version` | implemented |
+| Batch export from DB | `BatchRunner` | code, ingests challenge tickets, waits for the worker and writes `result.json` from stored suggestions (§5.4) | implemented |
 
 ### 4.1 Pipeline rules
 
@@ -150,7 +149,7 @@ flowchart LR
 
 Suggestions are **pre-computed** by a background worker. Opening a ticket only reads the stored result ([ADR-0002](adr/0002-background-analysis-worker.md)).
 
-> **Status: planned.** `ITicketIngestor`, the analysis worker and `IReviewService` do not exist in code yet. What exists: the pipeline (§4), `DbTicketSource` (streams `New` tickets, no caller), the `Status` lookup and the `*Changed` columns on `Ticket`. This section describes the intended behaviour on top of the **DB status model**.
+> **Status: implemented.** `ITicketIngestor` (`EfTicketIngestor`), the analysis worker (`AnalysisWorker`/`AnalysisCycle`/`TicketClaimStore`) and `IReviewService` (`EfReviewService`) all exist in code and are wired up in `TicketTriage.Web/Program.cs`. This section describes current behaviour on top of the DB status model, not a plan.
 
 ### 5.1 Ticket states
 
@@ -172,14 +171,14 @@ stateDiagram-v2
 
 | Status | Meaning | Implementation |
 |---|---|---|
-| `New` | Ticket has no stored suggestion yet. Input of the worker and of `DbTicketSource`. While a worker holds it, a planned nullable `ClaimedAt` lease marks it as "in analysis". | import and source implemented, claim planned |
-| `Reviewing` | A suggestion is stored (also a fallback suggestion, see §5.2.2) and waits for the analyst. | planned |
-| `Reviewed` | **Semantics still open.** Proposal: the analyst saved edits but has not decided yet. If the team does not need it, the state can stay unused. | open |
-| `HumanApproved` / `HumanRejected` | Final decision (FR-22). Approved with or without edits, told apart by the per-field edits. Imported training tickets that have a resolution are `HumanApproved`. | decisions planned, import implemented |
+| `New` | Ticket has no stored suggestion yet. Input of the worker (`TicketClaimStore`). While the worker holds it, the nullable `ClaimedAt` lease marks it as "in analysis". | implemented |
+| `Reviewing` | A suggestion is stored (also a fallback suggestion, see §5.2.2) and waits for the analyst. | implemented |
+| `Reviewed` | The analyst saved edits (`EfReviewService.SaveEditsAsync`) but has not approved or rejected yet. | implemented |
+| `HumanApproved` / `HumanRejected` | Final decision (FR-22). Approved with or without edits, told apart by the per-field edits. Imported training tickets that have a resolution are `HumanApproved`. | implemented (`EfReviewService.ApproveAsync`/`RejectAsync`), import implemented |
 
-The ticket list (FR-20) shows `New` as "analysing" (or "queued"), and a `New` ticket whose `Retries` reached `Triage:RetryCount` as "failed". A failed ticket still shows the deterministic fallback values (FR-34). `HumanApproved` and `HumanRejected` are final. Re-opening, un-rejecting and re-analysis after a decision are out of scope (§7).
+The ticket list (FR-20) shows `New` as "analysing" (or "queued"), and a `New` ticket whose `Retries` reached `Triage:RetryCount` as "failed". A failed ticket still shows the deterministic fallback values (FR-34). `HumanApproved` and `HumanRejected` are final. Re-opening, un-rejecting and re-analysis after a decision are out of scope (§7); a failed ticket can be requeued (`EfReviewService.RequeueFailedAsync`, resets `Retries`/`ClaimedAt`, status back to `New`).
 
-> **Known risk.** Imported training tickets without a resolution also have status `New`. Once a worker reads `New` tickets through `DbTicketSource`, it would triage historical data. A source/status filter is needed before the worker is wired. Solution (planned, schema change): a source/batch marker on `Ticket` separates ingested tickets (including the challenge tickets, §5.4) from imported training history, and the worker claims only tickets from the ingest path. Exact shape open; delete `data/triage.db*` after the change.
+> **Known risk, resolved.** Imported training tickets without a resolution also have status `New`. `TicketClaimStore.ClaimAsync` filters `Origin != TicketOrigin.Training`, so the worker only ever claims ingested tickets (Web upload / Batch, `TicketOrigin.Challenge`), never training history.
 
 ### 5.2 Ingest and analysis (worker)
 
@@ -214,7 +213,7 @@ sequenceDiagram
 
 ### 5.2.1 Worker rules
 
-These rules close the gaps of the diagram above. All of them apply to the worker (planned). Challenge tickets go through the same worker, so these rules apply to them too; the export rules of §5.4 come on top.
+These rules close the gaps of the diagram above. All of them apply to the worker (implemented, `TicketClaimStore` + `AnalysisCycle`). Challenge tickets go through the same worker, so these rules apply to them too; the export rules of §5.4 come on top.
 
 | Rule | Definition |
 |---|---|
@@ -232,7 +231,7 @@ These rules close the gaps of the diagram above. All of them apply to the worker
 
 There is a single retry mechanism: the **pipeline's**. The worker adds no counter of its own.
 
-| | Pipeline (implemented) | Worker (planned) |
+| | Pipeline (implemented) | Worker (implemented) |
 |---|---|---|
 | Counter | `Ticket.Retries`, reset to 0 on success | none (the worker does not count attempts) |
 | Limit | `Triage:RetryCount` | – |
@@ -270,15 +269,15 @@ sequenceDiagram
     Note over D: basis for acceptance rate, edits per field,<br/>time-to-resolution = ingested → first opened → decided (FR-25)
 ```
 
-If the ticket changed in the meantime (another analyst decided, or the worker re-analysed it), `rowVersion` no longer matches, the write is rejected and the UI reloads. (No row-version column exists yet.)
+If the ticket changed in the meantime (another analyst decided, or the worker re-analysed it), `rowVersion` no longer matches, the write is rejected and the UI reloads. Implemented via `Ticket.Version` (optimistic concurrency, bumped by both `TicketClaimStore.SaveAsync` and `EfReviewService`), not a dedicated EF concurrency token column.
 
 ### 5.4 Batch (challenge submission)
 
-**Target (decided 2026-09-25, planned).** The 20 challenge tickets take the same path as any ticket, so they also appear in the Web UI and a human can review and finalize them there:
+**Implemented (decided 2026-09-25).** The 20 challenge tickets take the same path as any ticket, so they also appear in the Web UI and a human can review and finalize them there:
 
 ```mermaid
 flowchart LR
-    c[/challenge file/] --> B1["Batch: ITicketIngestor<br/>(status New, challenge marker)"]
+    c[/challenge file/] --> B1["Batch: ITicketIngestor<br/>(status New, Origin=Challenge)"]
     B1 --> D[(SQLite)]
     D --> W["AnalysisWorker (Web)<br/>ITriagePipeline"]
     W --> D
@@ -287,29 +286,27 @@ flowchart LR
     D --> UI["Web UI: review / finalize"]
 ```
 
-- Batch no longer calls `ITriagePipeline` itself. Analysis, retry, timeout, fallback and the FR-33 validation are done by the worker path (§5.2, §5.2.1).
-- `result.json` has the same `TriageResult` shape, one entry per challenge ticket in challenge order, built from the **stored** suggestions.
-- Challenge tickets need a source/batch marker on `Ticket` so they are distinguishable from imported training history and the worker claims only ingested tickets (§5.1 known risk). Schema change: delete `data/triage.db*`.
-- The worker runs in Web. Batch never hosts it (ADR alternative "Worker inside Batch" stays rejected).
-- Needs `ITicketIngestor`, the worker and review persistence, none of which exist yet.
+- `BatchRunner` no longer calls `ITriagePipeline` or the LLM itself. Analysis, retry, timeout, fallback and the FR-33 validation are done by the worker path (§5.2, §5.2.1); Batch only ingests, waits and exports.
+- `result.json` has the same `TriageResult` shape, one entry per challenge ticket in challenge order, built from the **stored** suggestions (`ChallengeResults.BuildAsync`).
+- Challenge tickets are distinguishable from imported training history via `Ticket.Origin = TicketOrigin.Challenge` (Web upload uses the same origin); the worker's `TicketClaimStore` claims only `Origin != Training` (§5.1 known risk, resolved).
+- The worker runs in Web only. Batch never hosts it (ADR alternative "Worker inside Batch" stays rejected). `BatchRunner` polls `IAnalysisMonitor` and throws `BatchWorkerUnavailableException` if the worker's heartbeat is stale beyond `WorkerStartGraceSeconds` — Web (`aspire run`) must be running first.
 
-**Open assumptions** (not confirmed, requirements §7 no. 9 to 12):
+**Resolved assumptions** (were open, requirements §7 no. 9 to 12):
 
-| Topic | Assumption / options |
+| Topic | Resolution |
 |---|---|
-| Trigger and wait | Batch waits (polls) until all challenge tickets have left `New`, or the export runs on demand from Web. Open |
-| Ticket still `New` or failed | Export the deterministic fallback suggestion, as today (FR-34). Open |
-| What is exported | Recommendation: the AI suggestion by default, with a switch to export the analyst's final values. Open |
-| Single SQLite writer | Batch must not analyse concurrently with the Web worker. Open how this is enforced |
+| Trigger and wait | `BatchRunner.WaitForAnalysisAsync` polls (`PollIntervalSeconds`) until every ticket has left `New`, up to `WaitTimeoutSeconds`; it also watches the worker heartbeat and fails fast if the worker isn't running. |
+| Ticket still `New` after the timeout, or failed | Exported with the deterministic fallback suggestion (FR-34), same as any unanalysed ticket (`ChallengeResults.BuildAsync`). |
+| What is exported | The **AI suggestion** as stored by the worker (`SuggestionMapper.ToDomain`) — analyst edits/decisions are not applied to the export. No switch to export the analyst's final values exists. |
+| Single SQLite writer | Not a conflict: Batch never analyses, it only ingests (writes) and reads suggestions; the worker in Web is the only writer of suggestions. SQLite WAL mode is enabled in every environment so both processes can run concurrently (`Program.cs`). |
 
-**Second entry point: Web upload (implemented).** `/upload` in Web follows the same ingest -> worker -> export path with `TicketOrigin.Challenge`: the page parses the file, ingests via `ITicketIngestor`, polls `IAnalysisMonitor` while the Web `AnalysisWorker` analyses (30 s cycles, batch of 5, so minutes for 20 tickets), and builds `result.json` from the stored suggestions (pending tickets use the fallback). Output is byte-identical to Batch's (shared `ChallengeDocument.WriteAsync`); caps 10 MB / 500 records. Details, options and limitations: [features/upload-frontend](features/upload-frontend/README.md).
+**Second entry point: Web upload (implemented).** `/upload` in Web follows the same ingest → worker → export path with `TicketOrigin.Challenge`: the page parses the file, ingests via `ITicketIngestor`, polls `IAnalysisMonitor` while the Web `AnalysisWorker` analyses (30 s cycles, batch of 5, so minutes for 20 tickets), and builds `result.json` from the stored suggestions (pending tickets use the fallback). Output is byte-identical to Batch's (shared `ChallengeDocument.WriteAsync`); caps 10 MB / 500 records. Details, options and limitations: [features/upload-frontend](features/upload-frontend/README.md).
 
-**Current behaviour (transitional, implemented).** `BatchRunner` does not use the worker. It calls `ITriagePipeline` directly for each challenge ticket and writes `result.json`; nothing is persisted on success and the tickets do not show in the UI. It stays until ingest, worker and review persistence exist. Its per-ticket rules:
+**Batch per-run rules:**
 
-- **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket. The status is kept per ticket, not per run. A ticket that fails does not stop the run.
-- **Per-ticket retry, then fallback.** Retry, per-ticket timeout and fallback are done by the pipeline itself (`Triage:RetryCount`, `Triage:TicketTimeoutSeconds`, FR-34), so Batch gets one suggestion per ticket from the stream. `BatchRunner` calls the stream, counts fallbacks (blank `DraftComment`) and prints a console summary (tickets, fallback/failed, duration, output path) plus a warning if every ticket fell back. Bad input or an aborted run exits with 1 and writes nothing; the file is written atomically (temp file + move), so it is never partial. Details: [features/batch-runner](features/batch-runner/README.md). With `Triage:StopSystemOnFailure` the run is aborted on the first failure (development only).
-- **No self-retrieval.** kNN excludes the ticket itself (see §4.1). This holds on both paths.
-- **Data ready.** Batch checks the same "data ready" marker as the worker and stops with a clear message if data preparation is not complete.
+- **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket, in input order. A ticket that stays pending or fails does not stop the run.
+- **No self-retrieval.** kNN excludes the ticket itself (see §4.1). This holds for every path into the pipeline.
+- Bad input, an unwritable output path or an aborted run exits with a non-zero code and writes nothing; the file is written atomically (temp file + move), so it is never partial. Details: [features/batch-runner](features/batch-runner/README.md).
 
 ## 6. Cross-cutting
 
