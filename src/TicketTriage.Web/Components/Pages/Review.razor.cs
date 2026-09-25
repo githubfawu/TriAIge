@@ -182,6 +182,7 @@ public partial class Review : IAsyncDisposable
     private string TodoText(SuggestionField field) => StateOf(field) switch
     {
         FieldState.Missing => $"{FieldName(field)} is missing",
+        _ when _review?.Suggestion is { IsFallback: true } => $"{FieldName(field)}: fallback value {CurrentDisplay(field)} – please check",
         _ => $"{FieldName(field)}: AI changed {OriginalDisplay(field)} → {CurrentDisplay(field)}",
     };
 
@@ -331,7 +332,8 @@ public partial class Review : IAsyncDisposable
         null => null,
         { Decision.Decision: ReviewDecision.Approved } => TicketDisplayState.Approved,
         { Decision.Decision: ReviewDecision.Rejected } => TicketDisplayState.Rejected,
-        { IsFailed: true } => TicketDisplayState.Failed,
+        // After the retry limit the backend stores a deterministic fallback (FR-34): that is reviewable, not failed.
+        { IsFailed: true, Suggestion: null } => TicketDisplayState.Failed,
         { IsAnalysing: true } => TicketDisplayState.Analysing,
         { Suggestion: null } => TicketDisplayState.Queued,
         _ => TicketDisplayState.Pending,
