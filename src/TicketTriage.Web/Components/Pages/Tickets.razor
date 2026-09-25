@@ -37,7 +37,7 @@
     </div>
 </div>
 
-<MudDataGrid T="TicketBoardRow" Items="FilteredRows" RowClick="OpenReview" Hover Dense FixedHeader
+<MudDataGrid T="TicketBoardRow" Items="FilteredRows" RowClick="OpenReview" Hover Dense FixedHeader Breakpoint="Breakpoint.None"
              Class="tt-grid tt-tickets-grid" Elevation="0"
              RowClassFunc="@((TicketBoardRow _, int _) => "tt-row-clickable")">
     <Columns>

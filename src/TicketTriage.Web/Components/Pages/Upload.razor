@@ -7,24 +7,31 @@
 
 <PageTitle>Upload · TriAIge</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4">Upload tickets</MudText>
-
-<MudText Class="mb-4">
-    Upload the challenge JSON (envelope with <code>records</code> or a plain array). The tickets are ingested, analysed by the
-    background worker and exported as <code>result.json</code>. Analysed tickets also appear under
-    <MudLink Href="tickets">Tickets</MudLink>.
-</MudText>
+<div class="tt-page-header">
+    <div>
+        <MudText Typo="Typo.h4">Upload tickets</MudText>
+        <MudText Typo="Typo.body2" Class="tt-muted">Challenge JSON · analysed by the agent · exported as result.json</MudText>
+    </div>
+</div>
 
 @if (_state is UploadState.Idle or UploadState.Error)
 {
-    <MudFileUpload T="IBrowserFile" Accept=".json" OnFilesChanged="OnFileSelectedAsync">
-        <CustomContent Context="picker">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile"
-                       OnClick="picker.OpenFilePickerAsync">
-                Choose challenge .json
-            </MudButton>
-        </CustomContent>
-    </MudFileUpload>
+    <div class="tt-dropzone">
+        <div class="tt-dropzone-icon"><MudIcon Icon="@Icons.Material.Outlined.CloudUpload" /></div>
+        <div class="tt-dropzone-title">Upload a challenge file</div>
+        <div class="tt-dropzone-text">
+            JSON envelope with <code>records</code> or a plain array. Tickets are ingested, analysed by the background worker and
+            appear under <MudLink Href="tickets">Tickets</MudLink>.
+        </div>
+        <MudFileUpload T="IBrowserFile" Accept=".json" OnFilesChanged="OnFileSelectedAsync">
+            <CustomContent Context="picker">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" StartIcon="@Icons.Material.Outlined.FileUpload"
+                           OnClick="picker.OpenFilePickerAsync">
+                    Choose .json file
+                </MudButton>
+            </CustomContent>
+        </MudFileUpload>
+    </div>
 }
 
 @if (_error is not null)
@@ -40,7 +47,7 @@
 
 @if (_session is not null)
 {
-    <MudPaper Class="pa-4 mt-4">
+    <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4 tt-soft-card">
         <MudText Typo="Typo.h6">Ingest summary</MudText>
         <MudText>
             Created @_session.Counts.Created · Updated @_session.Counts.Updated · Unchanged @_session.Counts.Unchanged · Locked @_session.Counts.Locked
@@ -60,7 +67,7 @@
 
 @if (_state == UploadState.Waiting && _progress is not null)
 {
-    <MudPaper Class="pa-4 mt-4">
+    <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4 tt-soft-card">
         <MudProgressLinear Color="Color.Primary" Size="Size.Large" Value="@ProgressPercent" Class="mb-2" />
         <MudText>Analysed @_progress.Analysed of @_progress.Total - @_progress.Pending pending - @_progress.Fallbacks fallback</MudText>
         @if (_progress.Worker == WorkerStatus.Starting)
@@ -86,7 +93,7 @@
         </MudAlert>
     }
 
-    <MudPaper Class="pa-4 mt-4">
+    <MudPaper Outlined="true" Elevation="0" Class="pa-4 mt-4 tt-soft-card">
         <MudText>@_export.Rows.Count record(s) · @_export.Fallbacks fallback · @_export.NotAnalysed not analysed</MudText>
         <MudStack Row Class="mt-2">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="DownloadAsync">
@@ -97,7 +104,7 @@
         </MudStack>
     </MudPaper>
 
-    <MudTable T="ChallengeResultRow" Items="_export.Rows" Dense Hover Class="mt-4">
+    <MudTable T="ChallengeResultRow" Items="_export.Rows" Dense Hover Elevation="0" Breakpoint="Breakpoint.None" Class="mt-4 tt-grid tt-upload-grid">
         <HeaderContent>
             <MudTh>#/key</MudTh>
             <MudTh>Summary</MudTh>
@@ -111,10 +118,10 @@
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="#/key">@(string.IsNullOrEmpty(context.Ticket.Key) ? ChallengeDocument.PositionalKey(context.Position) : context.Ticket.Key)</MudTd>
-            <MudTd DataLabel="Summary">@context.Ticket.Summary</MudTd>
+            <MudTd DataLabel="Summary" Class="tt-col-summary"><span class="tt-ellipsis">@context.Ticket.Summary</span></MudTd>
             <MudTd DataLabel="Work type">@context.Result.WorkType</MudTd>
             <MudTd DataLabel="Services">@string.Join(", ", context.Result.AffectedServices)</MudTd>
-            <MudTd DataLabel="Priority">@context.Result.Priority</MudTd>
+            <MudTd DataLabel="Priority"><span class="tt-prio tt-prio-@(context.Result.Priority.ToString().ToLowerInvariant())">@context.Result.Priority</span></MudTd>
             <MudTd DataLabel="Team(s)">@string.Join(", ", context.Result.ServiceTeams)</MudTd>
             <MudTd DataLabel="Assignee">@context.Result.Assignee</MudTd>
             <MudTd DataLabel="Resolution">@context.Result.Resolution</MudTd>

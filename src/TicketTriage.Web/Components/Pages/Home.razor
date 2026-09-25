@@ -3,117 +3,128 @@
 
 <PageTitle>Dashboard · TriAIge</PageTitle>
 
-<MudStack Row AlignItems="AlignItems.Center" Class="mb-4">
-    <MudText Typo="Typo.h4">Dashboard</MudText>
-    <MudSpacer />
-    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_loadingHealth">
-        Refresh
-    </MudButton>
-</MudStack>
+<div class="tt-page-header">
+    <div>
+        <MudText Typo="Typo.h4">Dashboard</MudText>
+        <MudText Typo="Typo.body2" Class="tt-muted">Triage overview · updates live</MudText>
+    </div>
+    <div class="tt-header-actions">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Outlined.Refresh" OnClick="RefreshAsync" Disabled="_loadingHealth">
+            Refresh
+        </MudButton>
+        <MudButton Href="upload" Variant="Variant.Filled" Color="Color.Primary" DropShadow="false" StartIcon="@Icons.Material.Outlined.FileUpload">
+            Upload tickets
+        </MudButton>
+    </div>
+</div>
 
-<MudText Typo="Typo.subtitle1" Class="mb-2">Tickets by state</MudText>
-<MudGrid Class="mb-4">
-    @foreach (var state in Enum.GetValues<TicketDisplayState>())
-    {
-        <MudItem xs="6" md="2">
-            <MudLink Href="@($"/tickets?state={state}")" Underline="Underline.None">
-                <MudCard Outlined Class="tt-state-card">
-                    <MudCardContent>
-                        <MudText Typo="Typo.h5">@CountFor(state)</MudText>
-                        <MudText Typo="Typo.body2" Class="tt-state-label"><span class="tt-state-dot tt-dot-@state.ToString().ToLowerInvariant()"></span>@state</MudText>
-                    </MudCardContent>
-                </MudCard>
-            </MudLink>
-        </MudItem>
-    }
-</MudGrid>
+<div class="tt-dash">
+    @* KPI strip: headline numbers separated by hairlines, like the reference's top row. *@
+    <section class="tt-kpis tt-dash-wide">
+        <div class="tt-kpi">
+            <div class="tt-kpi-label">Tickets in triage</div>
+            <div class="tt-kpi-value">@_rows.Count</div>
+            <div class="tt-kpi-sub">@CountFor(TicketDisplayState.Pending) awaiting review</div>
+        </div>
+        <div class="tt-kpi">
+            <div class="tt-kpi-label">Acceptance rate</div>
+            <div class="tt-kpi-value">@FormatRate(_metrics.AcceptanceRate)</div>
+            <div class="tt-kpi-sub">approved without edits / decided</div>
+        </div>
+        <div class="tt-kpi">
+            <div class="tt-kpi-label">Decisions</div>
+            <div class="tt-kpi-value tt-kpi-value-sm">@_metrics.Approved approved / @_metrics.Rejected rejected</div>
+            <div class="tt-kpi-sub">@_metrics.Decided of @_metrics.Suggested suggested</div>
+        </div>
+        <div class="tt-kpi">
+            <div class="tt-kpi-label">Median ingest &rarr; decision</div>
+            <div class="tt-kpi-value">@FormatDuration(_metrics.MedianIngestToDecision)</div>
+            <div class="tt-kpi-sub">first open after @FormatDuration(_metrics.MedianIngestToFirstOpen)</div>
+        </div>
+    </section>
 
-<MudText Typo="Typo.subtitle1" Class="mb-2">Metrics</MudText>
-<MudGrid Class="mb-4">
-    <MudItem xs="12" sm="6" md="3">
-        <MudCard Outlined>
-            <MudCardContent>
-                <MudText Typo="Typo.h5">@FormatRate(_metrics.AcceptanceRate)</MudText>
-                <MudText Typo="Typo.body2">Acceptance rate (approved without edits / decided)</MudText>
-            </MudCardContent>
-        </MudCard>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudCard Outlined>
-            <MudCardContent>
-                <MudText Typo="Typo.h5">@_metrics.Approved approved / @_metrics.Rejected rejected</MudText>
-                <MudText Typo="Typo.body2">Decisions (@_metrics.Decided of @_metrics.Suggested suggested)</MudText>
-            </MudCardContent>
-        </MudCard>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudCard Outlined>
-            <MudCardContent>
-                <MudText Typo="Typo.h5">@FormatDuration(_metrics.MedianIngestToFirstOpen)</MudText>
-                <MudText Typo="Typo.body2">Median ingest &rarr; first open</MudText>
-            </MudCardContent>
-        </MudCard>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudCard Outlined>
-            <MudCardContent>
-                <MudText Typo="Typo.h5">@FormatDuration(_metrics.MedianIngestToDecision)</MudText>
-                <MudText Typo="Typo.body2">Median ingest &rarr; decision</MudText>
-            </MudCardContent>
-        </MudCard>
-    </MudItem>
-</MudGrid>
+    <section class="tt-panel">
+        <div class="tt-panel-title">Tickets by state</div>
+        @{ var total = _rows.Count; }
+        <div class="tt-status-bar" role="img" aria-label="Tickets by state">
+            @foreach (var state in Enum.GetValues<TicketDisplayState>())
+            {
+                var count = CountFor(state);
+                if (count > 0)
+                {
+                    <span class="tt-status-seg tt-dot-@state.ToString().ToLowerInvariant()" style="flex-grow:@count"
+                          title="@state: @count"></span>
+                }
+            }
+            @if (total == 0)
+            {
+                <span class="tt-status-seg tt-status-empty" style="flex-grow:1" title="No tickets yet"></span>
+            }
+        </div>
+        <div class="tt-state-grid">
+            @foreach (var state in Enum.GetValues<TicketDisplayState>())
+            {
+                <a class="tt-state-link" href="@($"/tickets?state={state}")">
+                    <span class="tt-state-label"><span class="tt-state-dot tt-dot-@state.ToString().ToLowerInvariant()"></span>@state</span>
+                    <h5 class="tt-state-count">@CountFor(state)</h5>
+                </a>
+            }
+        </div>
+    </section>
 
-<MudText Typo="Typo.subtitle1" Class="mb-2">Edits per field (all decided tickets)</MudText>
-<MudStack Row Wrap="Wrap.Wrap" Class="mb-4">
-    @foreach (var (field, count) in _metrics.EditsPerField)
-    {
-        <MudChip T="string">@field: @count</MudChip>
-    }
-</MudStack>
+    <section class="tt-panel">
+        <div class="tt-panel-title">Edits per field <span class="tt-panel-hint">all decided tickets</span></div>
+        @{ var maxEdits = Math.Max(1, _metrics.EditsPerField.Values.DefaultIfEmpty(0).Max()); }
+        <ul class="tt-bars">
+            @foreach (var (field, count) in _metrics.EditsPerField)
+            {
+                <li class="tt-bar-row" title="@field: @count">
+                    <span class="tt-bar-label">@Humanize(field.ToString())</span>
+                    <span class="tt-bar-track"><span class="tt-bar-fill" style="width:@(count * 100 / maxEdits)%"></span></span>
+                    <span class="tt-bar-value">@count</span>
+                </li>
+            }
+        </ul>
+    </section>
 
-<MudText Typo="Typo.subtitle1" Class="mb-2">System health (readiness checks)</MudText>
-
-@if (_loadingHealth && _report is null)
-{
-    <MudProgressLinear Indeterminate Color="Color.Primary" />
-}
-else if (_report is not null)
-{
-    <MudGrid>
-        @foreach (var name in DisplayedHealthChecks)
+    <section class="tt-panel tt-dash-wide">
+        <div class="tt-panel-title">
+            System health
+            @if (_report is not null)
+            {
+                <span class="tt-panel-hint">last refreshed @_checkedAt.ToLocalTime().ToString("T") · agent check cached 60 s</span>
+            }
+        </div>
+        @if (_loadingHealth && _report is null)
         {
-            var entry = _report.Entries.TryGetValue(name, out var found) ? found : (HealthReportEntry?)null;
-            <MudItem xs="12" md="6">
-                <MudCard Outlined>
-                    <MudCardHeader>
-                        <CardHeaderContent>
-                            <MudText Typo="Typo.h6">@name</MudText>
-                        </CardHeaderContent>
-                        <CardHeaderActions>
-                            <MudChip T="string" Color="@ColorFor(entry?.Status)" Variant="Variant.Filled">
-                                @(entry?.Status.ToString() ?? "Not registered")
-                            </MudChip>
-                        </CardHeaderActions>
-                    </MudCardHeader>
-                    <MudCardContent>
-                        <MudText Typo="Typo.body2">@(entry?.Description ?? "—")</MudText>
+            <MudProgressLinear Indeterminate Color="Color.Primary" Rounded="true" />
+        }
+        else if (_report is not null)
+        {
+            <div class="tt-health">
+                @foreach (var name in DisplayedHealthChecks)
+                {
+                    var entry = _report.Entries.TryGetValue(name, out var found) ? found : (HealthReportEntry?)null;
+                    <div class="tt-health-row">
+                        <div class="tt-health-name">
+                            <span class="tt-health-pill @HealthClass(entry?.Status)">@(entry?.Status.ToString() ?? "Not registered")</span>
+                            <span>@name</span>
+                        </div>
+                        <div class="tt-health-desc">@(entry?.Description ?? "—")</div>
                         @if (entry is { } e)
                         {
-                            <MudText Typo="Typo.caption">Checked in @e.Duration.TotalMilliseconds.ToString("F0") ms</MudText>
-                            @foreach (var (key, value) in e.Data)
-                            {
-                                <MudText Typo="Typo.caption" Class="d-block">@key: @value</MudText>
-                            }
+                            <div class="tt-health-meta">
+                                <span>@e.Duration.TotalMilliseconds.ToString("F0") ms</span>
+                                @foreach (var (key, value) in e.Data)
+                                {
+                                    <span>@key: @value</span>
+                                }
+                            </div>
                         }
-                    </MudCardContent>
-                </MudCard>
-            </MudItem>
+                    </div>
+                }
+            </div>
+            <div class="tt-health-overall">Overall: @_report.Status</div>
         }
-    </MudGrid>
-
-    <MudText Typo="Typo.caption" Class="mt-4 d-block">
-        Overall: @_report.Status · last refreshed @_checkedAt.ToLocalTime().ToString("T")
-        · the agent check is cached for 60 s to save tokens.
-    </MudText>
-}
+    </section>
+</div>
