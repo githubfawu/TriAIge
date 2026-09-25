@@ -95,7 +95,96 @@ public partial class Review : IAsyncDisposable
     private static bool DiffersServices(IReadOnlyCollection<string> current, IReadOnlyCollection<string> original) =>
         !current.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(original);
 
-    private string FieldClass(SuggestionField field) => Differs(field) ? "tt-field-changed" : "";
+    // ---- Review guidance (display only): what the analyst should look at, field by field. ----
+
+    private enum FieldState
+    {
+        Ok,
+        Changed,
+        Edited,
+        Missing,
+    }
+
+    private static readonly SuggestionField[] OverviewFields =
+    [
+        SuggestionField.WorkType, SuggestionField.AffectedServices, SuggestionField.ServiceTeams, SuggestionField.Assignee,
+        SuggestionField.Urgency, SuggestionField.Impact, SuggestionField.ResolutionStatus, SuggestionField.DraftComment,
+    ];
+
+    // Empty values the result export needs: these are what the analyst has to fill before accepting.
+    private bool IsMissing(SuggestionField field) => _form is not null && field switch
+    {
+        SuggestionField.AffectedServices => _form.AffectedServices.Count == 0,
+        SuggestionField.ServiceTeams => string.IsNullOrWhiteSpace(_form.ServiceTeam),
+        SuggestionField.Assignee => string.IsNullOrWhiteSpace(_form.Assignee),
+        SuggestionField.ResolutionStatus => _form.Resolution is null,
+        SuggestionField.DraftComment => string.IsNullOrWhiteSpace(_form.Comment),
+        _ => false,
+    };
+
+    private FieldState StateOf(SuggestionField field) =>
+        _form is null ? FieldState.Ok
+        : IsMissing(field) ? FieldState.Missing
+        : _form.EditedFields().Contains(field) ? FieldState.Edited
+        : Differs(field) ? FieldState.Changed
+        : FieldState.Ok;
+
+    private int CountState(FieldState state) => OverviewFields.Count(f => StateOf(f) == state);
+
+    private string FieldClass(SuggestionField field) =>
+        $"tt-fs-{StateOf(field).ToString().ToLowerInvariant()}" + (Differs(field) ? " tt-field-changed" : "");
+
+    private string? Hint(SuggestionField field) => StateOf(field) switch
+    {
+        FieldState.Missing => "Required – please set a value",
+        FieldState.Edited => field == SuggestionField.DraftComment ? "Edited by you" : $"Edited by you · {WasText(field)}",
+        FieldState.Changed => $"AI suggestion · {WasText(field)}",
+        _ => null,
+    };
+
+    private static string HintIcon(FieldState state) => state switch
+    {
+        FieldState.Missing => MudBlazor.Icons.Material.Outlined.ErrorOutline,
+        FieldState.Edited => MudBlazor.Icons.Material.Outlined.EditNote,
+        _ => MudBlazor.Icons.Material.Outlined.AutoAwesome,
+    };
+
+    private static string StateLabel(FieldState state) => state switch
+    {
+        FieldState.Missing => "Needs input",
+        FieldState.Edited => "Edited",
+        FieldState.Changed => "Changed",
+        _ => "Unchanged",
+    };
+
+    private static string FieldName(SuggestionField field) => field switch
+    {
+        SuggestionField.WorkType => "Work type",
+        SuggestionField.AffectedServices => "Affected service(s)",
+        SuggestionField.ServiceTeams => "Service team",
+        SuggestionField.Assignee => "Assignee",
+        SuggestionField.Urgency => "Urgency",
+        SuggestionField.Impact => "Impact",
+        SuggestionField.ResolutionStatus => "Resolution",
+        SuggestionField.DraftComment => "Comment",
+        _ => field.ToString(),
+    };
+
+    private string CurrentDisplay(SuggestionField field) => (_form is null ? null : field switch
+    {
+        SuggestionField.WorkType => TriageVocabulary.ToJsonName(_form.WorkType),
+        SuggestionField.AffectedServices => _form.AffectedServices.Count > 0 ? string.Join(", ", _form.AffectedServices) : null,
+        SuggestionField.ServiceTeams => _form.ServiceTeam,
+        SuggestionField.Assignee => _form.Assignee,
+        SuggestionField.Urgency => TriageVocabulary.ToJsonName(_form.Urgency),
+        SuggestionField.Impact => TriageVocabulary.ToJsonName(_form.Impact),
+        SuggestionField.ResolutionStatus => _form.Resolution is { } r ? TriageVocabulary.ToJsonName(r) : null,
+        SuggestionField.DraftComment => string.IsNullOrWhiteSpace(_form.Comment) ? null : "Draft reply",
+        _ => null,
+    }) is { Length: > 0 } value ? value : "—";
+
+    private string OriginalOverview(SuggestionField field) =>
+        field == SuggestionField.DraftComment ? "—" : OriginalDisplay(field);
 
     // An empty original is the common case for challenge tickets; "was: —" there is noise.
     private string WasText(SuggestionField field) =>
