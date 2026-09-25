@@ -178,7 +178,7 @@ else
                 <div class="tt-fields">
                     <div class="tt-group">Classification</div>
                     <div class="tt-field @FieldClass(SuggestionField.WorkType)" id="@FieldId(SuggestionField.WorkType)">
-                        <div class="tt-field-label"><span>Work type</span><span class="tt-label-right">@if (StateOf(SuggestionField.WorkType) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.WorkType).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.WorkType) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.WorkType" /></span></div>
+                        <div class="tt-field-label"><span>Work type</span><span class="tt-label-right">@if (StateOf(SuggestionField.WorkType) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.WorkType).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.WorkType))</span> }<OwnerBadge Field="SuggestionField.WorkType" /></span></div>
                         <MudSelect T="WorkType" @bind-Value="_form.WorkType" Variant="Variant.Outlined" Margin="Margin.Dense">
                             @foreach (var value in Enum.GetValues<WorkType>())
                             {
@@ -192,7 +192,7 @@ else
                     </div>
 
                     <div class="tt-field @FieldClass(SuggestionField.AffectedServices)" id="@FieldId(SuggestionField.AffectedServices)">
-                        <div class="tt-field-label"><span>Affected service(s)</span><span class="tt-label-right">@if (StateOf(SuggestionField.AffectedServices) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.AffectedServices).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.AffectedServices) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.AffectedServices" /></span></div>
+                        <div class="tt-field-label"><span>Affected service(s)</span><span class="tt-label-right">@if (StateOf(SuggestionField.AffectedServices) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.AffectedServices).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.AffectedServices))</span> }<OwnerBadge Field="SuggestionField.AffectedServices" /></span></div>
                         <MudSelect T="string" MultiSelection="true" SelectedValues="_form.AffectedServices" SelectedValuesChanged="OnAffectedServicesChanged"
                                    Variant="Variant.Outlined" Margin="Margin.Dense">
                             @foreach (var service in ServiceCatalog.All)
@@ -208,7 +208,7 @@ else
 
                     <div class="tt-group">Routing</div>
                     <div class="tt-field @FieldClass(SuggestionField.ServiceTeams)" id="@FieldId(SuggestionField.ServiceTeams)">
-                        <div class="tt-field-label"><span>Service team</span><span class="tt-label-right">@if (StateOf(SuggestionField.ServiceTeams) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.ServiceTeams).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.ServiceTeams) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.ServiceTeams" /></span></div>
+                        <div class="tt-field-label"><span>Service team</span><span class="tt-label-right">@if (StateOf(SuggestionField.ServiceTeams) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.ServiceTeams).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.ServiceTeams))</span> }<OwnerBadge Field="SuggestionField.ServiceTeams" /></span></div>
                         <MudSelect T="string" @bind-Value="_form.ServiceTeam" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                             @foreach (var team in ServiceTeamCatalog.All)
                             {
@@ -222,7 +222,7 @@ else
                     </div>
 
                     <div class="tt-field @FieldClass(SuggestionField.Assignee)" id="@FieldId(SuggestionField.Assignee)">
-                        <div class="tt-field-label"><span>Assignee</span><span class="tt-label-right">@if (StateOf(SuggestionField.Assignee) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.Assignee).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.Assignee) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.Assignee" /></span></div>
+                        <div class="tt-field-label"><span>Assignee</span><span class="tt-label-right">@if (StateOf(SuggestionField.Assignee) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.Assignee).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.Assignee))</span> }<OwnerBadge Field="SuggestionField.Assignee" /></span></div>
                         <MudTextField T="string" @bind-Value="_form.Assignee" MaxLength="100" Immediate="true" id="review-assignee-input"
                                       Variant="Variant.Outlined" Margin="Margin.Dense" Adornment="Adornment.Start"
                                       AdornmentIcon="@Icons.Material.Outlined.PersonOutline" />
@@ -235,7 +235,7 @@ else
                     <div class="tt-group">Priority</div>
                     <div class="tt-field-row">
                         <div class="tt-field @FieldClass(SuggestionField.Urgency)" id="@FieldId(SuggestionField.Urgency)">
-                            <div class="tt-field-label"><span>Urgency</span><span class="tt-label-right">@if (StateOf(SuggestionField.Urgency) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.Urgency).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.Urgency) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.Urgency" /></span></div>
+                            <div class="tt-field-label"><span>Urgency</span><span class="tt-label-right">@if (StateOf(SuggestionField.Urgency) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.Urgency).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.Urgency))</span> }<OwnerBadge Field="SuggestionField.Urgency" /></span></div>
                             <MudSelect T="Urgency" @bind-Value="_form.Urgency" Variant="Variant.Outlined" Margin="Margin.Dense">
                                 @foreach (var value in Enum.GetValues<Urgency>())
                                 {
@@ -249,7 +249,7 @@ else
                         </div>
 
                         <div class="tt-field @FieldClass(SuggestionField.Impact)" id="@FieldId(SuggestionField.Impact)">
-                            <div class="tt-field-label"><span>Impact</span><span class="tt-label-right">@if (StateOf(SuggestionField.Impact) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.Impact).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.Impact) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.Impact" /></span></div>
+                            <div class="tt-field-label"><span>Impact</span><span class="tt-label-right">@if (StateOf(SuggestionField.Impact) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.Impact).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.Impact))</span> }<OwnerBadge Field="SuggestionField.Impact" /></span></div>
                             <MudSelect T="Impact" @bind-Value="_form.Impact" Variant="Variant.Outlined" Margin="Margin.Dense">
                                 @foreach (var value in Enum.GetValues<Impact>())
                                 {
@@ -277,7 +277,7 @@ else
 
                     <div class="tt-group">Resolution</div>
                     <div class="tt-field @FieldClass(SuggestionField.ResolutionStatus)" id="@FieldId(SuggestionField.ResolutionStatus)">
-                        <div class="tt-field-label"><span>Resolution</span><span class="tt-label-right">@if (StateOf(SuggestionField.ResolutionStatus) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.ResolutionStatus).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.ResolutionStatus) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.ResolutionStatus" /></span></div>
+                        <div class="tt-field-label"><span>Resolution</span><span class="tt-label-right">@if (StateOf(SuggestionField.ResolutionStatus) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.ResolutionStatus).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.ResolutionStatus))</span> }<OwnerBadge Field="SuggestionField.ResolutionStatus" /></span></div>
                         <MudSelect T="ResolutionStatus?" @bind-Value="_form.Resolution" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
                             @foreach (var value in Enum.GetValues<ResolutionStatus>())
                             {
@@ -291,7 +291,7 @@ else
                     </div>
 
                     <div class="tt-field @FieldClass(SuggestionField.DraftComment)" id="@FieldId(SuggestionField.DraftComment)">
-                        <div class="tt-field-label"><span>Comment</span><span class="tt-label-right">@if (StateOf(SuggestionField.DraftComment) is FieldState.Missing or FieldState.Conflict) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.DraftComment).ToString().ToLowerInvariant()">@(StateOf(SuggestionField.DraftComment) == FieldState.Missing ? "Required" : "Review")</span> }<OwnerBadge Field="SuggestionField.DraftComment" /></span></div>
+                        <div class="tt-field-label"><span>Comment</span><span class="tt-label-right">@if (StateOf(SuggestionField.DraftComment) is FieldState.Missing or FieldState.Conflict or FieldState.Filled or FieldState.Edited) { <span class="tt-flag tt-flag-@StateOf(SuggestionField.DraftComment).ToString().ToLowerInvariant()">@FlagText(StateOf(SuggestionField.DraftComment))</span> }<OwnerBadge Field="SuggestionField.DraftComment" /></span></div>
                         <MudTextField T="string" @bind-Value="_form.Comment" Lines="5" MaxLength="2000" Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
                         @if (Hint(SuggestionField.DraftComment) is { } hintDraftComment)
                         {

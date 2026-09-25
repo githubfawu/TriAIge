@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject ILogger<Upload> Logger
 @inject IOptions<UploadOptions> UploadSettings
+@inject NavigationManager Navigation
 
 <PageTitle>Upload · TriAIge</PageTitle>
 
@@ -104,7 +105,9 @@
         </MudStack>
     </MudPaper>
 
-    <MudTable T="ChallengeResultRow" Items="_export.Rows" Dense Hover Elevation="0" Breakpoint="Breakpoint.None" Class="mt-4 tt-grid tt-upload-grid">
+    <div class="tt-table-hint"><MudIcon Icon="@Icons.Material.Outlined.TouchApp" Size="Size.Small" />Click a row to open its review</div>
+    <MudTable T="ChallengeResultRow" Items="_export.Rows" Dense Hover Elevation="0" Breakpoint="Breakpoint.None" Class="tt-grid tt-upload-grid"
+              OnRowClick="OpenReview" RowClass="tt-row-clickable">
         <HeaderContent>
             <MudTh>#/key</MudTh>
             <MudTh>Summary</MudTh>
@@ -115,16 +118,17 @@
             <MudTh>Assignee</MudTh>
             <MudTh>Resolution</MudTh>
             <MudTh>State</MudTh>
+            <MudTh></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="#/key">@(string.IsNullOrEmpty(context.Ticket.Key) ? ChallengeDocument.PositionalKey(context.Position) : context.Ticket.Key)</MudTd>
             <MudTd DataLabel="Summary" Class="tt-col-summary"><span class="tt-ellipsis">@context.Ticket.Summary</span></MudTd>
-            <MudTd DataLabel="Work type">@context.Result.WorkType</MudTd>
+            <MudTd DataLabel="Work type">@TicketTriage.Web.Triage.TriageVocabulary.ToJsonName(context.Result.WorkType)</MudTd>
             <MudTd DataLabel="Services">@string.Join(", ", context.Result.AffectedServices)</MudTd>
             <MudTd DataLabel="Priority"><span class="tt-prio tt-prio-@(context.Result.Priority.ToString().ToLowerInvariant())">@context.Result.Priority</span></MudTd>
             <MudTd DataLabel="Team(s)">@string.Join(", ", context.Result.ServiceTeams)</MudTd>
             <MudTd DataLabel="Assignee">@context.Result.Assignee</MudTd>
-            <MudTd DataLabel="Resolution">@context.Result.Resolution</MudTd>
+            <MudTd DataLabel="Resolution">@(context.Result.Resolution is { } res ? TicketTriage.Web.Triage.TriageVocabulary.ToJsonName(res) : "—")</MudTd>
             <MudTd DataLabel="State">
                 @if (!context.WasAnalysed)
                 {
@@ -139,6 +143,7 @@
                     <MudChip T="string" Size="Size.Small" Color="Color.Success">analysed</MudChip>
                 }
             </MudTd>
+            <MudTd Class="tt-col-chevron"><MudIcon Icon="@Icons.Material.Outlined.ChevronRight" Size="Size.Small" Class="tt-muted" /></MudTd>
         </RowTemplate>
     </MudTable>
 }
@@ -292,5 +297,14 @@
         await _disposeCts.CancelAsync();
         CancelPoll();
         _disposeCts.Dispose();
+    }
+
+    // Row n of the export belongs to the n-th ingested ticket of this upload session.
+    private void OpenReview(TableRowClickEventArgs<ChallengeResultRow> args)
+    {
+        if (args.Item is { } row && _session is { } session && row.Position >= 0 && row.Position < session.TicketIds.Count)
+        {
+            Navigation.NavigateTo($"review/{session.TicketIds[row.Position]}");
+        }
     }
 }

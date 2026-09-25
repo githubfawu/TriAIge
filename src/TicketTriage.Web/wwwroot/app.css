@@ -1976,3 +1976,41 @@ a.tt-attention:hover {
 .tt-side .tt-fs-filled .mud-input.mud-input-outlined {
     background: #ffffff;
 }
+
+/* Info level made visible: every value the AI put into an empty field is blue-framed and flagged "AI". */
+.tt-side .tt-fs-filled .mud-input.mud-input-outlined {
+    background: #f5f9ff;
+}
+
+.tt-side .tt-fs-filled .mud-input-outlined-border {
+    border-color: #93c5fd !important;
+}
+
+.tt-hint-filled {
+    color: #2563eb;
+    font-weight: 500;
+}
+
+.tt-flag-filled {
+    color: #1d4ed8;
+    background: #dbeafe;
+}
+
+.tt-flag-edited {
+    color: #15803d;
+    background: #dcfce7;
+}
+
+/* Upload result: rows open the review. */
+.tt-table-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 16px 0 6px;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.tt-upload-grid .mud-table-body .mud-table-row {
+    cursor: pointer;
+}

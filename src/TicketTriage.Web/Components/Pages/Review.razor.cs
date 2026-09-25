@@ -185,6 +185,15 @@ public partial class Review : IAsyncDisposable
         _ => $"{FieldName(field)}: AI changed {OriginalDisplay(field)} → {CurrentDisplay(field)}",
     };
 
+    private static string FlagText(FieldState state) => state switch
+    {
+        FieldState.Missing => "Required",
+        FieldState.Conflict => "Review",
+        FieldState.Filled => "AI",
+        FieldState.Edited => "Edited",
+        _ => "",
+    };
+
     private static string HintIcon(FieldState state) => state switch
     {
         FieldState.Missing => MudBlazor.Icons.Material.Outlined.ErrorOutline,
