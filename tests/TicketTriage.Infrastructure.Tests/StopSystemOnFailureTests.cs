@@ -26,6 +26,7 @@ public class StopSystemOnFailureTests
             classifier,
             new FakeRouter(_log),
             new FakeRoutingStatisticsSource(),
+            new FakeWorkload(),
             new ScriptedDrafter(),
             Options.Create(new TriageOptions { RetryCount = 3, StopSystemOnFailure = stop, RetryDelayMilliseconds = 0 }),
             _store,

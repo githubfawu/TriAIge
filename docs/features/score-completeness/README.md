@@ -9,7 +9,8 @@ Makes the batch run produce a scoreable `result.json` on the **real** organizer 
 | Input | The real challenge file (envelope with `records`, or a plain array). Records carry no `Issue key`; Batch assigns positional identities `#1..#n` internally (never written to the output). |
 | Output | The input container is mirrored: each record is cloned, predicted fields are overwritten, all other fields stay. Predicted fields are defined once in Core `TriageResult` (Jira vocabulary via `JiraVocabulary`). |
 | Service | Chosen by the LLM, validated against the 20 real names in `ServiceCatalog`. |
-| Team / assignee | `StatisticsRoutingResolver`: majority per service (and per service+team for the assignee), computed once per process from SQLite; ties resolve alphabetically (case-insensitive). The first classified service wins. |
+| Team | `StatisticsRoutingResolver`: majority per service, computed once per process from SQLite; ties resolve alphabetically (case-insensitive). The first classified service wins. |
+| Assignee | Person with the fewest tickets (`AssigneeWorkloadProvider`), see [Assignee decision](#assignee-decision-2026-09-25). |
 | Priority | Always `PriorityMatrix.Resolve(urgency, impact)`. |
 | Resolution status / comment | LLM drafter, validated; fallback = similar-ticket status majority, else `done` (slice 3). |
 
@@ -38,7 +39,24 @@ Method (`SignalMeasurementTests`): resolved tickets with a description (16 969) 
 | Assignee, kNN top-10 majority | 3.5% (120/3394) | 3.0% - 4.2% | 3.3% (1/30) | chance |
 | Service -> team determinism (all 20 000) | 100% (20 000/20 000) | - | - | deterministic |
 
-**Conclusion:** no learnable signal for status or assignee in the training file. Status must come from LLM semantics of the ticket text (the drafter must not copy similar tickets' statuses as evidence); the assignee is a majority vote and will score about chance whatever the pipeline does. Team is fully determined by service, so team accuracy equals service accuracy.
+**Conclusion:** no learnable signal for status or assignee in the training file. Status must come from LLM semantics of the ticket text (the drafter must not copy similar tickets' statuses as evidence); the assignee will score about chance whatever the pipeline does (see the assignee decision below). Team is fully determined by service, so team accuracy equals service accuracy.
+
+## Assignee decision (2026-09-25)
+
+`Notebooks/ticket_data_analysis.ipynb` (section "Assignee analysis") checks the assignee against every field and against the ticket order, and fits models with 5-fold cross-validation (30 assignees, chance 3.3% top-1 / 10% top-3):
+
+- Workload is even (about 1/30 per person), and every team has all 30 assignees.
+- No field (service, team, entity, work type, reporter, priority / urgency / impact, status, resolution, creation hour / weekday / month, resolution time, comments, text) is associated with the assignee after Bonferroni correction (bias-corrected Cramer's V at most 0.023). No round-robin, no "same person again", assignee = reporter at chance level (0.62%).
+- Every model scores at chance: most common overall 3.6% top-1, per-service majority (the old rule) 3.6%, logistic regression on routing fields 3.6%, on text 3.6%, on everything 3.5% (shuffled-label baseline 3.4%, permutation p = 0.27). A positive control (team from service) reaches 100%, so the setup can find a pattern.
+
+**Decision:** the majority vote per service is dropped. The suggested assignee is the person with the **fewest tickets assigned**. It spreads the work evenly and costs no accuracy (every rule is at chance).
+
+- **Counts:** training tickets per assignee plus stored suggestions (`TriageSuggestion.Assignee`), loaded once per process (`AssigneeWorkloadProvider`). Only assignees of training tickets are candidates. Ties resolve alphabetically (case-insensitive).
+- **Running counts:** every final suggestion (fallback included) is reserved in memory right away, so consecutive tickets go to different people. The resolver only peeks, so a retried ticket counts once.
+- **Restart:** in-memory reservations are lost; stored suggestions are counted again on the next load, so the Web worker continues where it stopped. A Batch run starts from the training counts every time and is therefore reproducible.
+- **Not checked:** absence, shifts, skills or the real current workload of a person; the export has no data for that. If the Domain Owner names a real rule, replace `IAssigneeWorkload`.
+- **UI:** the review page shows the hint "Suggestion: the person with the fewest tickets assigned so far. Not derived from the ticket content." under the assignee field (`#review-assignee-hint`).
+- **Validator:** the assignee is no longer compared with the statistics (`MissingAssignee` / `InconsistentAssignee` were removed).
 
 ## Data facts (plan F4-F7)
 
@@ -50,7 +68,7 @@ Method (`SignalMeasurementTests`): resolved tickets with a description (16 969) 
 ## Limitations
 
 - The output schema (container, casing, `All Comments` semantics) is an assumption pending organizer confirmation (plan C3, C6, C7).
-- Fields 4 (assignee) and 6 (status) cannot exceed chance by learning from training data.
+- Fields 4 (assignee) and 6 (status) cannot exceed chance by learning from training data. The assignee rule (fewest tickets) is a fairness rule, not a prediction.
 
 ### Known limitations from review (not fixed)
 

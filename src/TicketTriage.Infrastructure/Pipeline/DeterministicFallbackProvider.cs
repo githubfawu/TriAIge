@@ -11,6 +11,7 @@ internal sealed class DeterministicFallbackProvider(
     TicketNormalizer normalizer,
     ISimilarTicketSource similarSource,
     IRoutingStatisticsSource statisticsSource,
+    IAssigneeWorkload workload,
     IOptions<TriageOptions> options,
     ILogger<DeterministicFallbackProvider> logger) : IFallbackSuggestionProvider
 {
@@ -41,6 +42,17 @@ internal sealed class DeterministicFallbackProvider(
             statistics = RoutingStatistics.Empty;
         }
 
-        return FallbackSuggestionFactory.Create(normalized, similar, statistics, logger);
+        string? assignee = null;
+        try
+        {
+            assignee = await workload.PeekLeastLoadedAsync(cancellationToken);
+            await workload.ReserveAsync(assignee, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning("Assignee workload unavailable for {TicketKey}: {ExceptionType}", ticket.Key, ex.GetType().FullName);
+        }
+
+        return FallbackSuggestionFactory.Create(normalized, similar, statistics, assignee, logger);
     }
 }

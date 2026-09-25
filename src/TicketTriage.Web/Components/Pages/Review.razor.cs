@@ -122,12 +122,22 @@ public partial class Review : IAsyncDisposable
         _ => false,
     };
 
+    // A fallback suggestion was not produced by the agent, so every field needs a human look.
     private FieldState StateOf(SuggestionField field) =>
         _form is null ? FieldState.Ok
         : IsMissing(field) ? FieldState.Missing
         : _form.EditedFields().Contains(field) ? FieldState.Edited
-        : Differs(field) ? FieldState.Changed
+        : Differs(field) || _review?.Suggestion is { IsFallback: true } ? FieldState.Changed
         : FieldState.Ok;
+
+    private static string FieldId(SuggestionField field) => "f-" + field.ToString().ToLowerInvariant();
+
+    // First field that needs attention: missing values before AI changes to verify.
+    private string? FirstAttentionAnchor =>
+        OverviewFields.Where(f => StateOf(f) == FieldState.Missing)
+            .Concat(OverviewFields.Where(f => StateOf(f) == FieldState.Changed))
+            .Select(f => $"review/{Id}#{FieldId(f)}")
+            .FirstOrDefault();
 
     private int CountState(FieldState state) => OverviewFields.Count(f => StateOf(f) == state);
 
@@ -138,7 +148,7 @@ public partial class Review : IAsyncDisposable
     {
         FieldState.Missing => "Required – please set a value",
         FieldState.Edited => field == SuggestionField.DraftComment ? "Edited by you" : $"Edited by you · {WasText(field)}",
-        FieldState.Changed => $"AI suggestion · {WasText(field)}",
+        FieldState.Changed => $"Verify AI suggestion · {WasText(field)}",
         _ => null,
     };
 
@@ -153,7 +163,7 @@ public partial class Review : IAsyncDisposable
     {
         FieldState.Missing => "Needs input",
         FieldState.Edited => "Edited",
-        FieldState.Changed => "Changed",
+        FieldState.Changed => "Verify",
         _ => "Unchanged",
     };
 

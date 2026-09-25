@@ -33,6 +33,7 @@ public class TriageRetryTests
             classifier,
             router ?? new FakeRouter(log),
             statistics ?? new FakeRoutingStatisticsSource(),
+            new FakeWorkload(),
             drafter ?? new ScriptedDrafter(),
             Options.Create(new TriageOptions { RetryCount = retryCount, TicketTimeoutSeconds = timeoutSeconds, RetryDelayMilliseconds = 0 }),
             _store,
@@ -238,6 +239,7 @@ public class TriageRetryTests
             new ScriptedClassifier(),
             new FakeRouter(new CallLog()),
             new FakeRoutingStatisticsSource(),
+            new FakeWorkload(),
             new ScriptedDrafter(),
             Options.Create(new TriageOptions { RetryCount = 2, RetryDelayMilliseconds = 0 }),
             _store,
@@ -261,6 +263,7 @@ public class TriageRetryTests
             new ScriptedClassifier(failures: null, onFail: async _ => await cts.CancelAsync()),
             new FakeRouter(new CallLog()),
             new FakeRoutingStatisticsSource(),
+            new FakeWorkload(),
             new ScriptedDrafter(),
             Options.Create(new TriageOptions { RetryCount = 3, RetryDelayMilliseconds = 10000 }),
             _store,
@@ -272,7 +275,7 @@ public class TriageRetryTests
     }
 
     [Fact]
-    public async Task Triage_StatisticsFailDuringFallback_ReturnsEmptyRouting()
+    public async Task Triage_StatisticsFailDuringFallback_ReturnsNoTeam()
     {
         var similar = new FixedSimilarSource(Old("OLD-1", "Incident", 0.9, Cat));
         var pipeline = Build(
@@ -285,7 +288,6 @@ public class TriageRetryTests
 
         suggestion.DraftComment.Should().BeNull();
         suggestion.ServiceTeams.Should().BeEmpty();
-        suggestion.Assignee.Should().BeNull();
     }
 
     [Fact]
@@ -298,7 +300,7 @@ public class TriageRetryTests
         var suggestion = await pipeline.TriageAsync(Tickets.Make("T-1"), TestContext.Current.CancellationToken);
 
         _store.Calls.Should().HaveCount(2);
-        _store.Calls.Should().OnlyContain(c => c.Reason == "Validate:InconsistentTeam,InconsistentAssignee");
+        _store.Calls.Should().OnlyContain(c => c.Reason == "Validate:InconsistentTeam");
         suggestion.DraftComment.Should().BeNull();
         suggestion.AffectedServices.Should().Equal(Cat);
         suggestion.ServiceTeams.Should().Equal("Team A");
@@ -372,7 +374,7 @@ public class SuggestionValidatorTests
         CodesOf(bad).Should().BeEquivalentTo(
             [
                 "InvalidWorkType", "InvalidUrgency", "InvalidImpact", "NoAffectedServices", "UnknownService",
-                "InconsistentTeam", "InconsistentAssignee", "InvalidResolutionStatus", "EmptyComment",
+                "InconsistentTeam", "InvalidResolutionStatus", "EmptyComment",
             ]);
     }
 
@@ -438,22 +440,11 @@ public class SuggestionValidatorTests
     public void Validate_ExtraTeam_ReportsInconsistentTeam_PerAC3() =>
         CodesOf(Valid() with { ServiceTeams = ["Team A", "Team B"] }).Should().Equal("InconsistentTeam");
 
-    [Fact]
-    public void Validate_KnownServiceWithoutAssignee_ReportsMissingAssignee_PerAC3() =>
-        CodesOf(Valid() with { Assignee = null }).Should().Equal("MissingAssignee");
-
-    [Fact]
-    public void Validate_AssigneeDiffersFromStatistics_ReportsInconsistentAssignee_PerAC3() =>
-        CodesOf(Valid() with { Assignee = "bob" }).Should().Equal("InconsistentAssignee");
-
-    [Fact]
-    public void Validate_StatisticsWithoutAssignee_RequiresNullAssignee_PerAC3()
-    {
-        var stats = RoutingStatistics.Build([(FakeRouting.Service, "Team A", null, 1)]);
-
-        FluentActions.Invoking(() => SuggestionValidator.Validate(Valid() with { Assignee = null }, stats)).Should().NotThrow();
-        CodesOf(Valid(), stats).Should().Equal("InconsistentAssignee");
-    }
+    [Theory]
+    [InlineData(null)]
+    [InlineData("bob")]
+    public void Validate_AnyAssignee_IsNotChecked_BecauseItComesFromTheWorkload(string? assignee) =>
+        FluentActions.Invoking(() => SuggestionValidator.Validate(Valid() with { Assignee = assignee }, Stats)).Should().NotThrow();
 
     [Fact]
     public void Validate_PriorityIsAlwaysMatrixDerived_PerAC2()
@@ -526,26 +517,26 @@ public class FallbackSuggestionFactoryTests
             .AffectedServices.Should().Equal(S0);
 
     private static Task<TriageSuggestion> Fallback(params SimilarTicket[] similar) =>
-        Task.FromResult(FallbackSuggestionFactory.Create(Tickets.Make("T-1"), similar, FakeRouting.Statistics, NullLogger.Instance));
+        Task.FromResult(FallbackSuggestionFactory.Create(Tickets.Make("T-1"), similar, FakeRouting.Statistics, FakeRouting.Assignee, NullLogger.Instance));
 
     [Fact]
     public void Create_RoutingComesFromStatisticsForFallbackService_PerFR8()
     {
         var result = FallbackSuggestionFactory.Create(
-            Tickets.Make("T-1"), [Old("Incident", 0.9, S0)], FakeRouting.Statistics, NullLogger.Instance);
+            Tickets.Make("T-1"), [Old("Incident", 0.9, S0)], FakeRouting.Statistics, FakeRouting.Assignee, NullLogger.Instance);
 
         result.ServiceTeams.Should().Equal("Team A");
         result.Assignee.Should().Be("alice");
     }
 
     [Fact]
-    public void Create_ServiceUnknownToStatistics_HasNoRouting_PerFR8()
+    public void Create_ServiceUnknownToStatistics_HasNoTeamButKeepsTheAssignee_PerFR8()
     {
         var result = FallbackSuggestionFactory.Create(
-            Tickets.Make("T-1"), [Old("Incident", 0.9, S0)], RoutingStatistics.Empty, NullLogger.Instance);
+            Tickets.Make("T-1"), [Old("Incident", 0.9, S0)], RoutingStatistics.Empty, FakeRouting.Assignee, NullLogger.Instance);
 
         result.ServiceTeams.Should().BeEmpty();
-        result.Assignee.Should().BeNull();
+        result.Assignee.Should().Be("alice");
     }
 
     private static SimilarTicket WithStatus(string? status, double score) =>

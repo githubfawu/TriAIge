@@ -14,7 +14,7 @@ Replaces `StubTriagePipeline` with a real, stream-based `ITriagePipeline` in `Ti
 |---|---|
 | `ITicketSource` | `GetTicketsAsync(ct)` yields `IAsyncEnumerable<Ticket>`. Implemented by `DbTicketSource` (streams `New` tickets, [details](../similar-ticket-retrieval/README.md)); no caller yet. |
 | `ISimilarTicketSource` | `FindSimilarAsync(ticket, top, ct)`; excludes the ticket itself. Replaces `ISimilarTicketRetriever`. Implemented by `DbSimilarTicketSource` (TF-IDF over `Description`, [details](../similar-ticket-retrieval/README.md)); the former stub is deleted. |
-| `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter` | unchanged ports. Classifier and drafter are now LLM-backed in Agents ([triage-agent](../triage-agent/README.md)); `IRoutingResolver` is `StatisticsRoutingResolver` (majority vote from in-memory routing statistics, `Infrastructure/Routing`) |
+| `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter` | unchanged ports. Classifier and drafter are now LLM-backed in Agents ([triage-agent](../triage-agent/README.md)); `IRoutingResolver` is `StatisticsRoutingResolver` (team: majority vote from in-memory routing statistics; assignee: person with the fewest tickets from `IAssigneeWorkload`; both in `Infrastructure/Routing`) |
 | `ITriageFailureStore` | `RecordFailureAsync(TriageFailure, ct)` returns persisted `Retries` or null; `ResetRetriesAsync(ticketId, ct)`. Implemented by `EfTriageFailureStore`. |
 | `ITriagePipeline` | `TriageAsync(Ticket, ct)` (single) and `TriageAsync(IAsyncEnumerable<Ticket>, ct)` (stream). |
 
@@ -46,7 +46,7 @@ flowchart TD
 
 - **Normalize** (`TicketNormalizer`): flags `EmptySummary`, `EmptyDescription`, `NoServices`, `UnknownWorkType/Urgency/Impact`. Supplied work type, urgency, impact and priority are always set to null before the ports see the ticket (the model must classify from the text). Flags are logged at Information without ticket text. Text is forwarded unchanged.
 - **Priority** is computed by `TriageSuggestion` from `PriorityMatrix.Resolve(urgency, impact)`; the pipeline never sets it.
-- **Team / assignee** come from `IRoutingResolver`, `DraftComment` and `ResolutionStatus` from `IResolutionDrafter` (`ResolutionDraft(Status, Comment)`; the drafter also receives the routing decision). The fallback status is the majority of the similar tickets' `Resolution` values (ties: summed score, then enum order), else `Done`; the validator rejects a null or undefined status (`InvalidResolutionStatus`).
+- **Team / assignee** come from `IRoutingResolver` (the assignee is only *peeked* there; once the suggestion is final the pipeline calls `IAssigneeWorkload.ReserveAsync`, for the fallback too, so retries never count twice and the next ticket goes to the next person), `DraftComment` and `ResolutionStatus` from `IResolutionDrafter` (`ResolutionDraft(Status, Comment)`; the drafter also receives the routing decision). The fallback status is the majority of the similar tickets' `Resolution` values (ties: summed score, then enum order), else `Done`; the validator rejects a null or undefined status (`InvalidResolutionStatus`).
 - **Retries reuse work**: similar tickets are fetched once per ticket and reused on later attempts.
 
 ### Retry, timeout, backoff, fallback
@@ -55,7 +55,7 @@ flowchart TD
 |---|---|
 | Timeout | Each attempt runs under a linked `CancellationTokenSource` with `TicketTimeoutSeconds`. Timeout = failed attempt (`<Step>:Timeout`). |
 | Failed attempt | Any exception, timeout or validation failure: `Retries` +1 in DB and one `TriageFailure` row. |
-| Validation (`SuggestionValidator.Validate(suggestion, RoutingStatistics)`) | All 7 output fields. Codes: `InvalidWorkType`, `InvalidUrgency`, `InvalidImpact`, `NoAffectedServices`, `UnknownService` (not the canonical `ServiceCatalog` name), `MissingTeam` / `InconsistentTeam` and `MissingAssignee` / `InconsistentAssignee` (first service known to the statistics: teams must be exactly `[statistics team]`, assignee the statistics assignee; unknown service: no team, no assignee), `PriorityMismatch` (defensive, priority is computed), `InvalidResolutionStatus`, `EmptyComment`. The pipeline awaits the `IRoutingStatisticsSource` snapshot in the Validate step. The fallback is not validated: it derives its routing from the same statistics (no resolver call; if the statistics cannot be loaded it carries no routing) and has a blank comment by design. |
+| Validation (`SuggestionValidator.Validate(suggestion, RoutingStatistics)`) | All 7 output fields. Codes: `InvalidWorkType`, `InvalidUrgency`, `InvalidImpact`, `NoAffectedServices`, `UnknownService` (not the canonical `ServiceCatalog` name), `MissingTeam` / `InconsistentTeam` (first service known to the statistics: teams must be exactly `[statistics team]`; unknown service: no team; the assignee is **not** validated, it comes from the workload), `PriorityMismatch` (defensive, priority is computed), `InvalidResolutionStatus`, `EmptyComment`. The pipeline awaits the `IRoutingStatisticsSource` snapshot in the Validate step. The fallback is not validated: it derives its team from the same statistics and its assignee from the workload (no resolver call; if the statistics cannot be loaded it carries no team, if the workload fails no assignee) and has a blank comment by design. |
 | Exhausted | `max(attempts in this run, persisted Retries) >= RetryCount`. So a ticket with persisted `Retries` already at the limit falls back after its first new failure. |
 | Backoff | Fixed `RetryDelayMilliseconds` between attempts (not exponential); honours cancellation. |
 | Fallback | Work type and service from the similar tickets: most frequent, ties by summed score, then enum order / ordinal name. Only services found in `ServiceCatalog`. Defaults: `Incident` (no usable work type), no services, Urgency Medium, Impact Moderate. Routing via `IRoutingResolver` (empty on error), no comment. |
@@ -148,7 +148,7 @@ Not covered: end-to-end run against a real `data/triage.db`, Web/Batch wiring (n
 - `DbTicketSource` exists but has no caller; `BatchRunner` streams the challenge file directly (transitional; target is ingest → worker → export, ADR-0002) and the analysis worker is not wired yet.
 - Backoff is fixed, not exponential; no jitter.
 - After exhaustion a persisted `Retries` value is not cleared until a later success; a fallback ticket stays at the limit.
-- Classify and draft are LLM-backed (Agents), routing is `StatisticsRoutingResolver` (majority vote; the assignee is near-random in the data).
+- Classify and draft are LLM-backed (Agents), routing is `StatisticsRoutingResolver` (team by majority vote; the assignee is random in the data, so it is the least-loaded person).
 - Confidence and `LowConfidence` were dropped as not needed (the `Confidence` property no longer exists).
 - Validation covers all 7 output fields (FR-33, score-completeness slice 4).
 

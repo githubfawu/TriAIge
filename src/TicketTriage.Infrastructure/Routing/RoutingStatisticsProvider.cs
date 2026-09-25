@@ -18,7 +18,7 @@ internal interface IRoutingStatisticsSource
 /// </summary>
 internal sealed class RoutingStatisticsProvider : IRoutingStatisticsSource, IDisposable
 {
-    private readonly Func<CancellationToken, Task<IReadOnlyList<(string Service, string Team, string? Assignee, int Count)>>> _load;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<(string Service, string Team, int Count)>>> _load;
     private readonly ILogger<RoutingStatisticsProvider> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile RoutingStatistics? _statistics;
@@ -32,7 +32,7 @@ internal sealed class RoutingStatisticsProvider : IRoutingStatisticsSource, IDis
     }
 
     internal RoutingStatisticsProvider(
-        Func<CancellationToken, Task<IReadOnlyList<(string Service, string Team, string? Assignee, int Count)>>> load,
+        Func<CancellationToken, Task<IReadOnlyList<(string Service, string Team, int Count)>>> load,
         ILogger<RoutingStatisticsProvider> logger)
     {
         _load = load;
@@ -81,7 +81,7 @@ internal sealed class RoutingStatisticsProvider : IRoutingStatisticsSource, IDis
 
     public void Dispose() => _gate.Dispose();
 
-    private static async Task<IReadOnlyList<(string Service, string Team, string? Assignee, int Count)>> LoadRowsAsync(
+    private static async Task<IReadOnlyList<(string Service, string Team, int Count)>> LoadRowsAsync(
         IDbContextFactory<TriageDbContext> dbFactory,
         LookupNamesProvider lookupNames,
         CancellationToken cancellationToken)
@@ -91,20 +91,19 @@ internal sealed class RoutingStatisticsProvider : IRoutingStatisticsSource, IDis
         var groups = await db.Tickets.AsNoTracking()
             .Where(t => t.Origin == TicketOrigin.Training)
             .Where(t => t.AffectedBusinessOrITServiceId != null && t.ServiceTeamId != null)
-            .GroupBy(t => new { t.AffectedBusinessOrITServiceId, t.ServiceTeamId, t.Assignee })
-            .Select(g => new { g.Key.AffectedBusinessOrITServiceId, g.Key.ServiceTeamId, g.Key.Assignee, Count = g.Count() })
+            .GroupBy(t => new { t.AffectedBusinessOrITServiceId, t.ServiceTeamId })
+            .Select(g => new { g.Key.AffectedBusinessOrITServiceId, g.Key.ServiceTeamId, Count = g.Count() })
             .OrderBy(g => g.AffectedBusinessOrITServiceId)
             .ThenBy(g => g.ServiceTeamId)
-            .ThenBy(g => g.Assignee)
             .ToListAsync(cancellationToken);
 
-        List<(string Service, string Team, string? Assignee, int Count)> rows = [];
+        List<(string Service, string Team, int Count)> rows = [];
         foreach (var g in groups)
         {
             if (names.AffectedBusinessOrITServices.TryGetValue(g.AffectedBusinessOrITServiceId!.Value, out var service)
                 && names.ServiceTeams.TryGetValue(g.ServiceTeamId!.Value, out var team))
             {
-                rows.Add((service, team, g.Assignee, g.Count));
+                rows.Add((service, team, g.Count));
             }
         }
 
@@ -112,7 +111,6 @@ internal sealed class RoutingStatisticsProvider : IRoutingStatisticsSource, IDis
         return rows
             .OrderBy(r => r.Service, StringComparer.Ordinal)
             .ThenBy(r => r.Team, StringComparer.Ordinal)
-            .ThenBy(r => r.Assignee, StringComparer.Ordinal)
             .ToList();
     }
 }

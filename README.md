@@ -7,7 +7,7 @@ It classifies each ticket (work type, affected service, service team, assignee),
 the suggestion. Final scoring runs in batch mode over 20 challenge tickets (JSON in → JSON out).
 
 > **Status: work in progress.** Implemented: priority matrix, training import, the triage pipeline (retry, timeout, validation,
-> fallback, failure log), similar-ticket retrieval (in-memory TF-IDF), LLM classifier and resolution drafter, routing statistics (team + assignee), real `ServiceCatalog` names, LLM provider switch.
+> fallback, failure log), similar-ticket retrieval (in-memory TF-IDF), LLM classifier and resolution drafter, routing statistics (team) and the least-loaded assignee, real `ServiceCatalog` names, LLM provider switch.
 > Still stubs / planned: embeddings and hybrid retrieval,
 > ticket ingest, analysis worker, review persistence (HITL). The resolution status is predicted by the drafter and written to the batch output. `BatchRunner` runs end to end via a direct, transitional pipeline call (target: ingest → worker → export from the DB, [ADR-0002](docs/adr/0002-background-analysis-worker.md); [docs/features/batch-runner](docs/features/batch-runner/README.md)).
 > Per-component status: [docs/architecture.md](docs/architecture.md).

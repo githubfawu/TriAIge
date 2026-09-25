@@ -55,7 +55,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 
 | Stand | Anforderungen |
 |---|---|
-| umgesetzt | FR-01, FR-04 (im Speicher, einmal pro Prozess; Service → Team ist 1:1, der Assignee nahezu zufällig), FR-10, FR-11 (TF-IDF), FR-12, FR-13, FR-14, FR-15, FR-16, FR-31 (Pipeline stream-basiert), FR-33 (Validator prüft alle 7 Felder gegen Katalog, Routing-Statistik und Matrix), FR-34, FR-35, FR-36 |
+| umgesetzt | FR-01, FR-04 (im Speicher, einmal pro Prozess; Service → Team ist 1:1, der Assignee ist zufällig und wird nach Arbeitslast vergeben), FR-10, FR-11 (TF-IDF), FR-12, FR-13, FR-14, FR-15, FR-16, FR-31 (Pipeline stream-basiert), FR-33 (Validator prüft alle 7 Felder gegen Katalog, Routing-Statistik und Matrix), FR-34, FR-35, FR-36 |
 | teilweise | FR-17 (`SimilarTicketKeys` im Vorschlag), FR-30 (`BatchRunner` liest die Challenge-Datei und schreibt `result.json` per direktem Pipeline-Aufruf, übergangsweise; Ziel ist Ingest, Worker und Export aus der DB, das ist geplant; Resolution-Status wird geschrieben), NFR-03, NFR-04, NFR-07 |
 | geplant | FR-02, FR-03, FR-05, FR-20 bis FR-29, FR-32 (Temperature 0 im Agent, Seeds offen), NFR-10 und NFR-11 (erst mit Worker relevant) |
 | entfallen | FR-18 (Confidence). Ebenso entfällt die Begründung aus FR-17 und FR-24: es gibt keine Confidence-Werte, keine `LowConfidence`-Markierung und keine Begründung pro Entscheidung |
@@ -69,7 +69,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | FR-01 | Trainingsdaten werden idempotent in SQLite importiert. | M |
 | FR-02 | Resolution-Kommentare werden bereinigt: Templates, «Problem fixed» und kurze «Resolution recorded»-Einträge werden verworfen. Nur substanzielle «Resolution:»-Texte bleiben. | M |
 | FR-03 | Für Summary + Description werden Embeddings erzeugt, vorher dedupliziert und anschliessend persistent gecacht. | M |
-| FR-04 | Routing-Statistiken werden per Mehrheitsentscheid berechnet: Service → Team, (Service, Team) → Assignee. Ob Business Entity oder Work type das Routing beeinflussen, wird in der Exploration geprüft. | M |
+| FR-04 | Routing-Statistiken werden per Mehrheitsentscheid berechnet: Service → Team. Der Assignee ist aus den Daten nicht vorhersagbar (Exploration: kein Feld, keine Reihenfolge, kein Modell schlägt den Zufall von 1/30) und wird deshalb nach Arbeitslast vergeben: vorgeschlagen wird die Person mit den wenigsten zugewiesenen Tickets (Trainingsdaten plus gespeicherte Vorschläge, jeder neue Vorschlag zählt sofort mit; Gleichstand alphabetisch). | M |
 | FR-05 | Resolutions, die semantisch nicht zum Ticket passen, werden über einen Similarity-Schwellenwert herausgefiltert. | S |
 
 ### 3.2 Triage-Pipeline (pro Ticket)
@@ -79,7 +79,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 | FR-10 | Ticket einlesen und normalisieren. Leere oder verdächtige Felder werden markiert und nicht blind übernommen. | M |
 | FR-11 | Die Top-k ähnlichen historischen Tickets werden per kNN (Cosine Similarity, aktuell TF-IDF über die Description im Speicher, Embeddings geplant, siehe FR-03) über `ISimilarTicketSource.FindSimilarAsync(ticket, top, ct)` ermittelt. Das Ticket selbst ist nie im Ergebnis. k ist konfigurierbar (FR-35). | M |
 | FR-12 | Das LLM bestimmt Work type und Affected Service mit Structured Output. Die ähnlichen Tickets dienen als Kontext, die mitgelieferten Werte nur als Hinweis. | M |
-| FR-13 | Team und Assignee werden aus den Routing-Statistiken abgeleitet, nicht frei vom LLM erfunden. | M |
+| FR-13 | Team (Routing-Statistik) und Assignee (Person mit den wenigsten Tickets) werden per Code bestimmt, nicht frei vom LLM erfunden. | M |
 | FR-14 | Das LLM schätzt Urgency und Impact unter Berücksichtigung der Critical-Service-Liste. | M |
 | FR-15 | Die Priority wird **deterministisch im Code** aus der Matrix berechnet, niemals durch das LLM. | M |
 | FR-16 | Resolution-Status und Resolution-Kommentar werden auf Basis der besten bereinigten Vorlagen gedraftet, in der Stimme des Assignees. **Stand:** umgesetzt (Status und Kommentar aus einem strukturierten Aufruf, Stimme des über die Statistik gewählten Assignees; Status im Vokabular `done` / `cancelled` / `clarification` / `cannot reproduce`). | M |
@@ -162,7 +162,7 @@ Priorisierung nach MoSCoW: **M** = Must, **S** = Should, **C** = Could.
 1. **Vokabular-Mapping Urgency/Impact:** In den Daten stehen Werte wie `highest`, `high`, `medium`, `low`, `lowest`, die Matrix verwendet für Impact aber Major, Significant, Moderate, Minor und No impact. Annahme bis zur Klärung: `highest`=Major, `high`=Significant, `medium`=Moderate, `low`=Minor, `lowest`=No impact. Gilt dasselbe für `critical` bei Urgency?
 2. **Output-Format:** Exaktes Submission-Schema (Feldnamen, Gross-/Kleinschreibung, Resolution-Kommentar als eigenes Feld oder angehängt an «All Comments»)?
 3. **Azure-Zugang:** Stellt Swiss Life Azure-OpenAI-Keys zur Verfügung oder braucht es eigene?
-4. **Routing-Logik:** Hängt der Assignee von Business Entity oder Work type ab? Das klären die Exploration und eine Rückfrage beim Domain Owner.
+4. **Routing-Logik:** Der Assignee hängt in den Daten weder von Business Entity noch von Work type oder einem anderen Feld ab (Exploration, Notebook). Ob es eine echte Zuteilungsregel gibt (Schichtplan, Auslastung, Skills), klärt nur eine Rückfrage beim Domain Owner. Bis dahin gilt die Regel «wenigste Tickets».
 5. **Mehrere Services pro Ticket:** Sind Listen mit mehr als einem Service im Referenz-Set zu erwarten?
 6. **Analyse-Worker:** Wie oft läuft der Timer, wie gross ist der Batch, wie hoch ist das Retry-Limit? Annahme bis zur Klärung: Timer 30 s, Batch 5, 3 Versuche.
 7. **Batch und Worker:** *Entschieden am 2026-09-25: ja.* Die 20 Challenge-Tickets laufen über denselben Pfad wie jedes Ticket (Ingest, Analyse-Worker, gespeicherter Vorschlag), damit sie in der Web-UI erscheinen und ein Mensch sie prüfen und finalisieren kann. Batch exportiert `result.json` aus den gespeicherten Vorschlägen (siehe FR-30, [architecture.md §5.4](architecture.md), [ADR-0002](adr/0002-background-analysis-worker.md)). Bis Ingest, Worker und Review-Persistenz existieren, ruft Batch die Pipeline übergangsweise direkt auf.
