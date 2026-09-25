@@ -1,9 +1,10 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
+using TicketTriage.Infrastructure.Analysis;
+using TicketTriage.Infrastructure.Challenge;
 
 namespace TicketTriage.Batch;
 
@@ -19,8 +20,6 @@ public sealed class BatchRunner(
     TimeProvider timeProvider,
     ILogger<BatchRunner> logger)
 {
-    private static readonly JsonSerializerOptions OutputOptions = new() { WriteIndented = true };
-
     public async Task<BatchSummary> RunAsync(CancellationToken cancellationToken)
     {
         var started = timeProvider.GetTimestamp();
@@ -28,7 +27,7 @@ public sealed class BatchRunner(
         var settings = options.Value;
 
         logger.LogInformation("Reading challenge tickets from {Input}.", input);
-        var document = await ChallengeDocument.ReadAsync(input, cancellationToken);
+        var document = await ChallengeFile.ReadAsync(input, cancellationToken);
         var tickets = document.Tickets;
 
         foreach (var duplicate in document.DuplicateKeys)
@@ -53,34 +52,10 @@ public sealed class BatchRunner(
             ingested.Count(r => r.Outcome == IngestOutcome.Locked));
 
         var states = await WaitForAnalysisAsync(distinctIds, settings, cancellationToken);
-        var byId = states.ToDictionary(s => s.TicketId);
-
-        var fallbackCache = new Dictionary<int, TriageSuggestion>();
-        var results = new List<TriageResult>(ids.Count);
-        var fallbacks = 0;
-        var notAnalysed = 0;
-        foreach (var id in ids)
-        {
-            var state = byId[id];
-            var suggestion = state.Suggestion;
-            if (suggestion is null)
-            {
-                if (!fallbackCache.TryGetValue(id, out suggestion))
-                {
-                    suggestion = await fallbackProvider.CreateAsync(state.Ticket, cancellationToken);
-                    fallbackCache[id] = suggestion;
-                }
-
-                notAnalysed++;
-            }
-
-            if (IsFallback(suggestion))
-            {
-                fallbacks++;
-            }
-
-            results.Add(TriageResult.From(suggestion));
-        }
+        var built = await ChallengeResults.BuildAsync(ids, states, fallbackProvider, cancellationToken);
+        var results = built.Rows.Select(r => r.Result).ToList();
+        var fallbacks = built.Fallbacks;
+        var notAnalysed = built.NotAnalysed;
 
         cancellationToken.ThrowIfCancellationRequested();
         await WriteAtomicallyAsync(output, document.ToOutput(results), cancellationToken);
@@ -113,8 +88,7 @@ public sealed class BatchRunner(
             var now = timeProvider.GetUtcNow();
             var elapsed = now - waitStart;
             var heartbeat = await monitor.GetWorkerHeartbeatAsync(cancellationToken);
-            var alive = heartbeat is { } beat
-                && now.UtcDateTime - beat <= TimeSpan.FromSeconds(settings.WorkerHeartbeatMaxAgeSeconds);
+            var alive = WorkerLiveness.IsAlive(heartbeat, now, TimeSpan.FromSeconds(settings.WorkerHeartbeatMaxAgeSeconds));
 
             if (!alive && elapsed >= TimeSpan.FromSeconds(settings.WorkerStartGraceSeconds))
             {
@@ -203,7 +177,7 @@ public sealed class BatchRunner(
         {
             await using (var stream = File.Create(temp))
             {
-                await JsonSerializer.SerializeAsync(stream, content, OutputOptions, cancellationToken);
+                await ChallengeDocument.WriteAsync(content, stream, cancellationToken);
             }
 
             File.Move(temp, output, overwrite: true);

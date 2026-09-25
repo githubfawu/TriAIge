@@ -40,9 +40,9 @@ All tickets share **one** pipeline implementation (FR-31). Target (decided 2026-
 ```mermaid
 flowchart BT
     core["Core<br/>domain records, enums, PriorityMatrix,<br/>ServiceCatalog, pipeline ports"]
-    infra["Infrastructure<br/>EF Core/SQLite, import, pipeline, similar-ticket retrieval, routing statistics"]
+    infra["Infrastructure<br/>EF Core/SQLite, import, pipeline, similar-ticket retrieval, routing statistics,<br/>Challenge/ (shared challenge file parsing + result building)"]
     agents["Agents<br/>IChatClient factory, agents, prompts"]
-    web["Web<br/>Blazor UI, HITL"]
+    web["Web<br/>Blazor UI, HITL, Upload (/upload)"]
     batch["Batch<br/>challenge → result"]
     sd["ServiceDefaults<br/>OTel, health, resilience"]
     host["AppHost"]
@@ -57,6 +57,8 @@ flowchart BT
     host -. orchestrates .-> web
     host -. orchestrates .-> batch
 ```
+
+`Infrastructure/Challenge` (`ChallengeDocument`, `ChallengeResults`) holds the challenge-file logic shared by Batch (path wrapper `Batch/ChallengeFile`) and Web (`Web/Upload/ChallengeUploadService`), see [features/upload-frontend](features/upload-frontend/README.md). Tests: `tests/TicketTriage.Web.Tests` covers the upload service.
 
 Core has no references, and all dependencies point inward. Pipeline steps are Core interfaces (`ITicketSource`, `ISimilarTicketSource`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriageFailureStore`, `ITriagePipeline`), implemented in Infrastructure (deterministic) or Agents (LLM-backed). `ITriagePipeline` only **analyses** tickets, as a stream (`TriageAsync(IAsyncEnumerable<Ticket>)`, one suggestion per ticket, in order) or for a single ticket. `ITicketSource` supplies the input stream (`DbTicketSource`, no caller yet). Two further Core ports keep the other concerns out of it: `ITicketIngestor` (saves incoming tickets as `New`) and `IReviewService` (persists the analyst's decision, edits and timestamps). The analysis worker is a `BackgroundService` in Web that calls the pipeline, see [ADR-0002](adr/0002-background-analysis-worker.md).
 
@@ -300,6 +302,8 @@ flowchart LR
 | What is exported | Recommendation: the AI suggestion by default, with a switch to export the analyst's final values. Open |
 | Single SQLite writer | Batch must not analyse concurrently with the Web worker. Open how this is enforced |
 
+**Second entry point: Web upload (implemented).** `/upload` in Web follows the same ingest -> worker -> export path with `TicketOrigin.Challenge`: the page parses the file, ingests via `ITicketIngestor`, polls `IAnalysisMonitor` while the Web `AnalysisWorker` analyses (30 s cycles, batch of 5, so minutes for 20 tickets), and builds `result.json` from the stored suggestions (pending tickets use the fallback). Output is byte-identical to Batch's (shared `ChallengeDocument.WriteAsync`); caps 10 MB / 500 records. Details, options and limitations: [features/upload-frontend](features/upload-frontend/README.md).
+
 **Current behaviour (transitional, implemented).** `BatchRunner` does not use the worker. It calls `ITriagePipeline` directly for each challenge ticket and writes `result.json`; nothing is persisted on success and the tickets do not show in the UI. It stays until ingest, worker and review persistence exist. Its per-ticket rules:
 
 - **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket. The status is kept per ticket, not per run. A ticket that fails does not stop the run.
@@ -331,4 +335,5 @@ Decided as out of scope for the hackathon. Recorded so they are not mistaken for
 | Direct database edits | A ticket edited in the database (not through ingest) does not invalidate its suggestion. |
 | Personal data | No PII redaction, retention or region rules beyond the log hygiene of CLAUDE.md. |
 | Non-determinism | Temperature 0 does not guarantee identical output on Azure OpenAI. Not handled. |
+| Upload page (`/upload`) | No authentication (local / hackathon only). No global pending check, so a second tab can upload while earlier tickets are pending. Keyless records are keyed `#n` under the Challenge origin: a different keyless file overwrites earlier `#1..#n` rows and Locked rows export a stale suggestion (the page warns). No per-field length caps on ticket text. See [features/upload-frontend](features/upload-frontend/README.md). |
 | UI and review details | Merge of concurrent edits, first-opened timing bias, circuit reconnect and analyst identity are not designed yet. |

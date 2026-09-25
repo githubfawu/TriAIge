@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using TicketTriage.Core.Domain;
+using TicketTriage.Infrastructure.Challenge;
 
 namespace TicketTriage.Batch.Tests;
 
@@ -42,7 +43,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ReadAsync_Envelope_ReadsRecordsWithPositionalKeys_PerAC1()
     {
-        var doc = await ChallengeDocument.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
+        var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
         doc.Tickets.Select(t => t.Key).Should().Equal("#1", "#2");
         doc.Tickets.Select(t => t.Summary).Should().Equal("s1", "s2");
@@ -51,7 +52,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_Envelope_KeepsEnvelopeMetadata_PerAC1()
     {
-        var doc = await ChallengeDocument.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
+        var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
         var output = (JsonObject)doc.ToOutput([Result(), Result()]);
 
@@ -64,7 +65,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_PlainArray_StaysArray_PerAC1()
     {
-        var doc = await ChallengeDocument.ReadAsync(
+        var doc = await ChallengeFile.ReadAsync(
             Write("""[{"Summary":"s1"},{"Summary":"s2"}]"""), TestContext.Current.CancellationToken);
 
         var output = doc.ToOutput([Result(), Result()]);
@@ -75,7 +76,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_KeylessRecords_NeverAddIssueKey_PerAC1()
     {
-        var doc = await ChallengeDocument.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
+        var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
         var records = doc.ToOutput([Result(), Result()])["records"]!.AsArray();
 
@@ -85,7 +86,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_RecordWithIssueKey_KeepsIt()
     {
-        var doc = await ChallengeDocument.ReadAsync(
+        var doc = await ChallengeFile.ReadAsync(
             Write("""[{"Issue key":"CH-7","Summary":"s"}]"""), TestContext.Current.CancellationToken);
 
         var record = (JsonObject)doc.ToOutput([Result()]).AsArray()[0]!;
@@ -97,7 +98,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_PreservesExtraFieldsAndOrder_PerAC2()
     {
-        var doc = await ChallengeDocument.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
+        var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
         var first = (JsonObject)doc.ToOutput([Result(), Result()])["records"]!.AsArray()[0]!;
 
@@ -110,7 +111,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_PrefilledPredictedFields_AreOverwritten_PerAC2()
     {
-        var doc = await ChallengeDocument.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
+        var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
         var first = (JsonObject)doc.ToOutput([Result(), Result()])["records"]!.AsArray()[0]!;
 
@@ -125,7 +126,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ToOutput_ResultCountMismatch_Throws()
     {
-        var doc = await ChallengeDocument.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
+        var doc = await ChallengeFile.ReadAsync(Write(Envelope), TestContext.Current.CancellationToken);
 
         var act = () => doc.ToOutput([Result()]);
 
@@ -143,7 +144,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [InlineData("42")]
     public async Task ReadAsync_BadShape_ThrowsBatchInputException_PerAC1(string json)
     {
-        var act = () => ChallengeDocument.ReadAsync(Write(json), TestContext.Current.CancellationToken);
+        var act = () => ChallengeFile.ReadAsync(Write(json), TestContext.Current.CancellationToken);
 
         await act.Should().ThrowAsync<BatchInputException>();
     }
@@ -151,7 +152,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ReadAsync_RecordWithoutSummary_ThrowsWithoutRecordText()
     {
-        var act = () => ChallengeDocument.ReadAsync(
+        var act = () => ChallengeFile.ReadAsync(
             Write("""{"records":[{"Description":"ZX-SECRET-MARKER-91"}]}"""), TestContext.Current.CancellationToken);
 
         var ex = (await act.Should().ThrowAsync<BatchInputException>()).Which;
@@ -161,7 +162,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task ReadAsync_InvalidJsonWithText_DoesNotLeakText()
     {
-        var act = () => ChallengeDocument.ReadAsync(
+        var act = () => ChallengeFile.ReadAsync(
             Write("{\"records\":[{\"Summary\":\"" + Marker + "\","), TestContext.Current.CancellationToken);
 
         var ex = (await act.Should().ThrowAsync<BatchInputException>()).Which;
@@ -171,7 +172,7 @@ public sealed class ChallengeDocumentTests : IDisposable
     [Fact]
     public async Task DuplicateKeys_OnlyRealKeysCount()
     {
-        var doc = await ChallengeDocument.ReadAsync(
+        var doc = await ChallengeFile.ReadAsync(
             Write("""[{"Issue key":"A-1","Summary":"a"},{"Issue key":"A-1","Summary":"b"},{"Summary":"c"},{"Summary":"d"}]"""),
             TestContext.Current.CancellationToken);
 
@@ -184,7 +185,7 @@ public sealed class ChallengeDocumentTests : IDisposable
         var path = _dir.Combine("big.json");
         await File.WriteAllTextAsync(path, "[{\"Summary\":\"" + Marker + new string('x', 10 * 1024 * 1024) + "\"}]", TestContext.Current.CancellationToken);
 
-        var act = async () => await ChallengeDocument.ReadAsync(path, TestContext.Current.CancellationToken);
+        var act = async () => await ChallengeFile.ReadAsync(path, TestContext.Current.CancellationToken);
 
         var ex = (await act.Should().ThrowAsync<BatchInputException>()).Which;
         ex.Message.Should().Contain("limit").And.NotContain(Marker);
@@ -195,9 +196,9 @@ public sealed class ChallengeDocumentTests : IDisposable
     {
         var path = Write("[" + string.Join(',', Enumerable.Repeat("{\"Summary\":\"" + Marker + "\"}", 10_001)) + "]");
 
-        var act = async () => await ChallengeDocument.ReadAsync(path, TestContext.Current.CancellationToken);
+        var act = async () => await ChallengeFile.ReadAsync(path, TestContext.Current.CancellationToken);
 
         var ex = (await act.Should().ThrowAsync<BatchInputException>()).Which;
-        ex.Message.Should().Contain("10000").And.NotContain(Marker);
+        ex.Message.Should().Contain("500").And.NotContain(Marker);
     }
 }

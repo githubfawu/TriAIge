@@ -28,11 +28,13 @@ src/
   TicketTriage.Core/            Domain — NO references. Domain/ (Ticket, enums, PriorityMatrix, ServiceCatalog,
                                 TriageSuggestion, …), Abstractions/ (pipeline ports)
   TicketTriage.Infrastructure/  → Core. Persistence/ (TriageDbContext, entities; no Migrations/), Import/ (training file),
+                                Challenge/ (ChallengeDocument: stream/JSON parse + mirrored output, ChallengeResults, shared by Batch and Web),
                                 Pipeline/ (TriagePipeline), Retrieval/ (TF-IDF), Sources/ (DbTicketSource, mapper),
                                 Routing/ (statistics, resolver), Stubs/ (no routing stub any more), DatabaseInitializer
   TicketTriage.Agents/          → Infrastructure. Llm/ (LlmOptions, ChatClientFactory), Classification/, Drafting/, Prompting/,
                                 Services/ (service catalog abstraction), TriageAgent, Health/
-  TicketTriage.Web/             → Agents, ServiceDefaults. Components/Pages: Home, Tickets, Review
+  TicketTriage.Web/             → Agents, ServiceDefaults. Components/Pages: Home, Tickets, Review, Upload (`/upload`: upload Jira JSON →
+                                ingest → AnalysisWorker → download result.json; service in Upload/, [docs](docs/features/upload-frontend/README.md))
   TicketTriage.Batch/           → Agents, Infrastructure. challenge file → pipeline → result.json (mirrored input)
   TicketTriage.ServiceDefaults/ OTel (incl. M.E.AI + Agent Framework sources), health checks (ReadyTag), resilience
   TicketTriage.AppHost/         wires triage-db, web, batch, LLM parameters
@@ -41,6 +43,7 @@ tests/
   TicketTriage.Infrastructure.Tests/  pipeline, failure store, retrieval, sources, importer (SQLite in-memory)
   TicketTriage.Agents.Tests/    classifier / drafter with a fake IChatClient; live smoke tests are `Category=Integration`
   TicketTriage.Batch.Tests/     BatchRunner / BatchCommand with a fake ITriagePipeline (temp files, no LLM, no DB)
+  TicketTriage.Web.Tests/       ChallengeUploadService with fake ingestor/monitor (no bUnit yet, Upload.razor is checked manually)
 ```
 
 Dependency direction: `Core ← Infrastructure ← Agents ← {Web, Batch}`. Never reference outward.
@@ -106,7 +109,9 @@ Pipeline behaviour is the `Triage` section (`TriageOptions`, in Web/Batch `appse
 - Agent Framework 1.x renamed preview APIs (`AgentThread` → `AgentSession`, `CreateAIAgent` → `AsAIAgent`) — old samples won't compile.
 - `TriageAgent` is a **keyed** singleton: inject `[FromKeyedServices(TriageAgent.Name)] AIAgent`.
 - Resource name `triage-db` = connection string name (`InfrastructureServiceCollectionExtensions.ConnectionStringName`).
-- `result.json` shape is dictated by the organizers — don't change it without checking the challenge spec.
+- `result.json` shape is dictated by the organizers — don't change it without checking the challenge spec. Batch and the Web upload page both write it through `ChallengeDocument.WriteAsync`; keep it the only writer. Input cap: 10 MB / 500 records.
+- Keyless challenge records are keyed `#n` under the Challenge origin, so uploading a *different* keyless file overwrites earlier `#1..#n` tickets (Locked ones export a stale suggestion). Known limitation, see the upload-frontend README.
+- MudBlazor 9.10 `MudFileUpload` has no `ActivatorContent`; use `CustomContent` with a button calling `picker.OpenFilePickerAsync`.
 
 ## Claude Code setup (shared, committed)
 

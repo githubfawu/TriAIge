@@ -15,4 +15,8 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="TicketTriage.Web.Tests" />
+  </ItemGroup>
+
 </Project>

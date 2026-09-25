@@ -1,9 +1,11 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MudBlazor.Services;
 using TicketTriage.Agents;
 using TicketTriage.Infrastructure;
 using TicketTriage.Infrastructure.Persistence;
 using TicketTriage.Web.Analysis;
 using TicketTriage.Web.Components;
+using TicketTriage.Web.Upload;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +14,13 @@ builder.AddServiceDefaults();
 builder.Services.AddTriageInfrastructure(builder.Configuration);
 builder.Services.AddTriageAgents(builder.Configuration);
 builder.Services.AddHostedService<AnalysisWorker>();
+
+builder.Services.AddOptions<UploadOptions>()
+    .Bind(builder.Configuration.GetSection(UploadOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddScoped<ChallengeUploadService>();
 
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<TriageDbContext>("sqlite", tags: [Extensions.ReadyTag])

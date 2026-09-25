@@ -92,6 +92,7 @@ dotnet run --project src/TicketTriage.AppHost  # Aspire dashboard: https://local
   - `/` shows the dashboard with the health of `sqlite` and `agent-framework`
   - `/tickets` lists suggestions pending review
   - `/review/{id}` shows a suggestion next to editable fields
+  - `/upload` takes a challenge `.json` (envelope or array, max 10 MB / 500 records), waits for the background worker (minutes for 20 tickets) and downloads `result.json` in the Batch format ([docs/features/upload-frontend](docs/features/upload-frontend/README.md))
   - `/health` returns every check as detailed JSON
   - `/alive` runs liveness checks only
 - **batch**: has an explicit start, so launch it from the dashboard (▶). It reads `data/jira_hackathon_blind_eval_challenge_20260923083915-1141.json` (envelope with a `records` array or a plain array; records may lack `Issue key`) and writes a mirror of it `data/result.json`.

@@ -2,24 +2,25 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using TicketTriage.Core.Domain;
 
-namespace TicketTriage.Batch;
+namespace TicketTriage.Infrastructure.Challenge;
 
 /// <summary>
 /// The challenge file: either a plain JSON array of records or an envelope object with a <c>records</c> array
 /// (the real export). Keeps the original JSON so the output can mirror every record and the envelope metadata.
 /// </summary>
-/// <remarks>Error messages carry positions and type names only, never record values (personal data).</remarks>
+/// <remarks>Error messages carry positions and type names only, never record values (personal data) or paths.</remarks>
 public sealed class ChallengeDocument
 {
     private const string RecordsProperty = "records";
 
     /// <summary>The real challenge file is tiny; the caps only bound memory for a wrong or hostile input.</summary>
-    internal const long MaxFileBytes = 10 * 1024 * 1024;
+    public const long MaxFileBytes = 10 * 1024 * 1024;
 
-    internal const int MaxRecords = 10_000;
+    public const int MaxRecords = 500;
 
     private static readonly JsonSerializerOptions InputOptions = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions ResultOptions = new();
+    private static readonly JsonSerializerOptions OutputOptions = new() { WriteIndented = true };
 
     private readonly JsonNode _root;
     private readonly List<JsonObject> _records;
@@ -40,49 +41,63 @@ public sealed class ChallengeDocument
 
     public static string PositionalKey(int zeroBasedIndex) => $"#{zeroBasedIndex + 1}";
 
-    public static async Task<ChallengeDocument> ReadAsync(string path, CancellationToken cancellationToken)
+    /// <summary>Reads at most <see cref="MaxFileBytes"/> from the stream; more is rejected.</summary>
+    public static async Task<ChallengeDocument> ReadAsync(Stream stream, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(stream);
+
         JsonNode? root;
         try
         {
-            if (new FileInfo(path) is { Exists: true, Length: > MaxFileBytes })
+            using var buffer = new MemoryStream();
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
             {
-                throw new BatchInputException($"Input file '{path}' is larger than the limit of {MaxFileBytes} bytes.");
+                if (buffer.Length + read > MaxFileBytes)
+                {
+                    throw new ChallengeFormatException($"The input is larger than the limit of {MaxFileBytes} bytes.");
+                }
+
+                buffer.Write(chunk, 0, read);
             }
 
-            await using var stream = File.OpenRead(path);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken);
+            buffer.Position = 0;
+            root = await JsonNode.ParseAsync(buffer, cancellationToken: cancellationToken);
         }
         catch (JsonException ex)
         {
-            throw new BatchInputException(
-                $"Input file '{path}' is not valid JSON (line {ex.LineNumber + 1}, position {ex.BytePositionInLine + 1}).", ex);
+            throw new ChallengeFormatException(
+                $"The input is not valid JSON (line {ex.LineNumber + 1}, position {ex.BytePositionInLine + 1}).", ex);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        catch (Exception ex) when (ex is IOException or NotSupportedException)
         {
-            throw new BatchInputException($"Cannot read input file '{path}' ({ex.GetType().Name}).", ex);
+            throw new ChallengeFormatException($"The input cannot be read ({ex.GetType().Name}).", ex);
         }
 
+        return Parse(root);
+    }
+
+    public static ChallengeDocument Parse(JsonNode? root)
+    {
         var array = root switch
         {
             JsonArray a => a,
             JsonObject o when o.TryGetPropertyValue(RecordsProperty, out var records) => records as JsonArray
-                ?? throw new BatchInputException(
-                    $"Input file '{path}' has a '{RecordsProperty}' property that is not a JSON array."),
-            JsonObject => throw new BatchInputException(
-                $"Input file '{path}' is an object without a '{RecordsProperty}' array."),
-            _ => throw new BatchInputException(
-                $"Input file '{path}' must be a JSON array of tickets or an object with a '{RecordsProperty}' array."),
+                ?? throw new ChallengeFormatException($"The input has a '{RecordsProperty}' property that is not a JSON array."),
+            JsonObject => throw new ChallengeFormatException($"The input is an object without a '{RecordsProperty}' array."),
+            _ => throw new ChallengeFormatException(
+                $"The input must be a JSON array of tickets or an object with a '{RecordsProperty}' array."),
         };
 
         if (array.Count == 0)
         {
-            throw new BatchInputException($"Input file '{path}' contains an empty ticket array.");
+            throw new ChallengeFormatException("The input contains an empty ticket array.");
         }
 
         if (array.Count > MaxRecords)
         {
-            throw new BatchInputException($"Input file '{path}' contains more than the limit of {MaxRecords} records.");
+            throw new ChallengeFormatException($"The input contains more than the limit of {MaxRecords} records.");
         }
 
         var recordObjects = new List<JsonObject>(array.Count);
@@ -91,7 +106,7 @@ public sealed class ChallengeDocument
         {
             if (array[i] is not JsonObject record)
             {
-                throw new BatchInputException($"Input file '{path}' contains a record at index {i} that is not a JSON object.");
+                throw new ChallengeFormatException($"The input contains a record at index {i} that is not a JSON object.");
             }
 
             Ticket? ticket;
@@ -101,13 +116,12 @@ public sealed class ChallengeDocument
             }
             catch (JsonException ex)
             {
-                throw new BatchInputException(
-                    $"Record at index {i} in '{path}' is not a valid ticket (path {ex.Path}).", ex);
+                throw new ChallengeFormatException($"Record at index {i} is not a valid ticket (path {ex.Path}).", ex);
             }
 
             if (ticket is null)
             {
-                throw new BatchInputException($"Input file '{path}' contains null instead of a ticket at index {i}.");
+                throw new ChallengeFormatException($"The input contains null instead of a ticket at index {i}.");
             }
 
             recordObjects.Add(record);
@@ -122,6 +136,14 @@ public sealed class ChallengeDocument
             .ToList();
 
         return new ChallengeDocument(root!, recordObjects, tickets, duplicates);
+    }
+
+    /// <summary>Single indented serializer so Batch and Web produce byte-identical files.</summary>
+    public static Task WriteAsync(JsonNode content, Stream destination, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(destination);
+        return JsonSerializer.SerializeAsync(destination, content, OutputOptions, cancellationToken);
     }
 
     /// <summary>
