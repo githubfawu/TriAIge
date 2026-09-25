@@ -7,30 +7,29 @@ public sealed record ServiceDefinition(string Name, ServiceRating Rating);
 /// </summary>
 public static class ServiceCatalog
 {
-    // TODO: replace the placeholder names with the exact service names from the challenge
-    // specification / training data. The counts (20 total, 14 Critical) are asserted by tests.
+    // Order follows docs/requirements.md section 6; names match the AffectedBusinessOrITServices lookup seed.
     public static IReadOnlyList<ServiceDefinition> All { get; } =
     [
-        new("TODO Critical Service 01", ServiceRating.Critical),
-        new("TODO Critical Service 02", ServiceRating.Critical),
-        new("TODO Critical Service 03", ServiceRating.Critical),
-        new("TODO Critical Service 04", ServiceRating.Critical),
-        new("TODO Critical Service 05", ServiceRating.Critical),
-        new("TODO Critical Service 06", ServiceRating.Critical),
-        new("TODO Critical Service 07", ServiceRating.Critical),
-        new("TODO Critical Service 08", ServiceRating.Critical),
-        new("TODO Critical Service 09", ServiceRating.Critical),
-        new("TODO Critical Service 10", ServiceRating.Critical),
-        new("TODO Critical Service 11", ServiceRating.Critical),
-        new("TODO Critical Service 12", ServiceRating.Critical),
-        new("TODO Critical Service 13", ServiceRating.Critical),
-        new("TODO Critical Service 14", ServiceRating.Critical),
-        new("TODO Non-Critical Service 01", ServiceRating.NonCritical),
-        new("TODO Non-Critical Service 02", ServiceRating.NonCritical),
-        new("TODO Non-Critical Service 03", ServiceRating.NonCritical),
-        new("TODO Non-Critical Service 04", ServiceRating.NonCritical),
-        new("TODO Non-Critical Service 05", ServiceRating.NonCritical),
-        new("TODO Non-Critical Service 06", ServiceRating.NonCritical),
+        new("Trading Platform", ServiceRating.Critical),
+        new("Order Management", ServiceRating.Critical),
+        new("Trade Matching", ServiceRating.Critical),
+        new("Securities Settlement", ServiceRating.Critical),
+        new("Corporate Actions", ServiceRating.Critical),
+        new("Fund Pricing", ServiceRating.Critical),
+        new("NAV Calculation", ServiceRating.Critical),
+        new("Portfolio Accounting", ServiceRating.Critical),
+        new("Cash Management", ServiceRating.Critical),
+        new("Risk & Compliance Monitoring", ServiceRating.Critical),
+        new("Regulatory Reporting", ServiceRating.Critical),
+        new("SimCorp Dimension", ServiceRating.Critical),
+        new("Rimes Data Feed", ServiceRating.Critical),
+        new("Client Reporting", ServiceRating.Critical),
+        new("Tax Reporting", ServiceRating.NonCritical),
+        new("CRM & Client Portal", ServiceRating.NonCritical),
+        new("Identity & Access Management", ServiceRating.NonCritical),
+        new("SharePoint & File Storage", ServiceRating.NonCritical),
+        new("Outlook & Email", ServiceRating.NonCritical),
+        new("Emailed Support Tickets", ServiceRating.NonCritical),
     ];
 
     private static readonly Dictionary<string, ServiceDefinition> ByName =

@@ -27,8 +27,8 @@ Core ← Infrastructure ← Agents ← { Web, Batch }        AppHost wires every
 ```
 
 - **Core**: entities, value objects, domain rules, enums (e.g. category, priority). No package or project references — ever.
-- **Infrastructure**: `DbContext`, entity configurations, migrations, repositories, data importers (`training.json`).
-- **Agents**: agents, tools (`AIFunction`s), workflows, prompts, structured-output records, provider setup (`Llm` options → Azure OpenAI / Ollama `IChatClient`). No UI types.
+- **Infrastructure**: `DbContext`, entity configurations, repositories, data importers (`training.json`).
+- **Agents**: agents, tools (`AIFunction`s), workflows, prompts, structured-output records, provider setup (`Llm` options → Azure OpenAI / OpenAI / Apertus / Ollama `IChatClient`). No UI types.
 - **Web**: Blazor Server components (MudBlazor), feature folders, DI composition. No business rules in `.razor`.
 - **Batch**: reads `challenge.json`, runs triage, writes `result.json`. Thin — reuses Agents/Infrastructure.
 - Business rules live on Core types (behaviour methods, validated value objects), not in agents, handlers or components.
@@ -43,7 +43,7 @@ Core ← Infrastructure ← Agents ← { Web, Batch }        AppHost wires every
 - `TreatWarningsAsErrors` is on: fix warnings, don't suppress them. A justified `#pragma` needs a one-line *why* comment.
 - Blazor: `IDbContextFactory<T>` per operation, `InvokeAsync(StateHasChanged)` from callbacks, no LLM calls during prerender, cancel in-flight agent runs on dispose.
 - Agents: structured output (typed records) for triage decisions, validate model output against Core enums before use, `CancellationToken` passed into `RunAsync`.
-- Schema changes: add a migration with `dotnet ef migrations add <Name> --project src/TicketTriage.Infrastructure --startup-project src/TicketTriage.Web --output-dir Persistence/Migrations`. Never hand-edit generated migration files.
+- Schema changes: there are **no migrations**. Edit the entities / `TriageDbContext` (lookup seeds via `HasData`), then note in the feature docs that `data/triage.db*` must be deleted once (`EnsureCreated` never alters an existing DB; see the `sqlite-efcore` skill).
 - Secrets only via configuration (Aspire parameters / user secrets). Never commit keys, never log prompts containing ticket PII at Information level.
 - Comments only for constraints the code can't show.
 

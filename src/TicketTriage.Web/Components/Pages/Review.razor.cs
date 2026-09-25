@@ -1,38 +1,39 @@
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
+using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
 using TicketTriage.Web.Components.Shared;
 using TicketTriage.Web.Triage;
 
 namespace TicketTriage.Web.Components.Pages;
 
-/// <summary>Code-behind for <c>/review/{Id:int}</c> (FR15-FR21, Slice 2). No component injects
-/// <see cref="Core.Abstractions.ITriagePipeline"/> directly (NFR2): opening this page only ever reads via
-/// <see cref="ITriageBoardQuery"/>; <see cref="TriageWorker"/> is the only thing that analyses tickets.</summary>
-public partial class Review : IDisposable
+/// <summary>Code-behind for <c>/review/{Id:int}</c> (FR15-FR21). Opening this page never analyses a ticket (NFR2):
+/// it only reads via <see cref="IReviewService"/>, which the <c>AnalysisWorker</c>/<c>ITriagePipeline</c> never see.
+/// A light timer refreshes the page while the ticket is still being analysed, since main's backend has no
+/// ticket-changed event to subscribe to.</summary>
+public partial class Review : IAsyncDisposable
 {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+
     private readonly CancellationTokenSource _cts = new();
 
-    private TicketReviewData? _data;
+    private TicketReview? _review;
     private ReviewFormModel? _form;
+    private TicketDisplayState? _state;
+    private string? _failureReason;
     private bool _loading = true;
     private bool _busy;
-    private int? _effectsForId;
+    private PeriodicTimer? _timer;
+    private Task? _refreshLoop;
 
     [Parameter]
     public int Id { get; set; }
 
     [Inject]
-    private ITriageBoardQuery BoardQuery { get; set; } = null!;
+    private IReviewService ReviewService { get; set; } = null!;
 
     [Inject]
-    private IUploadIngestService IngestService { get; set; } = null!;
-
-    [Inject]
-    private IReviewDecisionService DecisionService { get; set; } = null!;
-
-    [Inject]
-    private TriageSessionStore Store { get; set; } = null!;
+    private ITicketBoardQuery BoardQuery { get; set; } = null!;
 
     [Inject]
     private ISnackbar Snackbar { get; set; } = null!;
@@ -47,55 +48,66 @@ public partial class Review : IDisposable
 
     private bool CanSave => !_busy && _form is not null && _form.HasChanges;
 
-    /// <summary>Whether the suggestion (the form's baseline) differs from the original at all - independent of
-    /// whatever the analyst is currently editing (FR15's "No changes suggested" case).</summary>
+    /// <summary>Whether the AI suggestion itself differs from the original ticket at all (independent of whatever
+    /// the analyst is currently editing) - the "No changes suggested" case.</summary>
     private bool BaselineHasNoChanges =>
-        _data is { FormBaseline: { } baseline } data
-        && TriageVocabulary.ToJsonName(baseline.WorkType) == data.OriginalWorkType
-        && string.Equals(baseline.AffectedService, data.OriginalAffectedService, StringComparison.Ordinal)
-        && string.Equals(baseline.ServiceTeam, data.OriginalServiceTeam, StringComparison.Ordinal)
-        && string.Equals(baseline.Assignee, data.OriginalAssignee, StringComparison.Ordinal)
-        && TriageVocabulary.ToJsonName(baseline.Urgency) == data.OriginalUrgency
-        && TriageVocabulary.DbImpactNameFor(baseline.Impact) == data.OriginalImpact
-        && string.Equals(baseline.Resolution is { } r ? TriageVocabulary.ToJsonName(r) : null, data.OriginalResolution, StringComparison.Ordinal);
+        _review is { Suggestion: { } suggestion, Ticket: { } ticket }
+        && !ValueDiffers(TriageVocabulary.ToJsonName(suggestion.WorkType), ticket.WorkType)
+        && !DiffersServices(suggestion.AffectedServices, ticket.AffectedServices)
+        && !ValueDiffers(suggestion.ServiceTeams.FirstOrDefault(), OriginalServiceTeam)
+        && !ValueDiffers(suggestion.Assignee, ticket.Assignee)
+        && !ValueDiffers(TriageVocabulary.ToJsonName(suggestion.Urgency), ticket.Urgency)
+        && !ValueDiffers(TriageVocabulary.ToJsonName(suggestion.Impact), ticket.Impact)
+        && !ValueDiffers(suggestion.ResolutionStatus is { } r ? TriageVocabulary.ToJsonName(r) : null, ticket.Resolution);
+
+    private string? OriginalServiceTeam =>
+        (_review?.Ticket.ServiceTeams.Count ?? 0) > 0 ? string.Join(", ", _review!.Ticket.ServiceTeams) : null;
+
+    private string? OriginalAffectedServices =>
+        (_review?.Ticket.AffectedServices.Count ?? 0) > 0 ? string.Join(", ", _review!.Ticket.AffectedServices) : null;
 
     /// <summary>Whether the currently displayed value for <paramref name="field"/> differs from the ticket's
-    /// original (FR15) - true both for an untouched AI suggestion and for a live analyst edit.</summary>
-    private bool Differs(ReviewField field)
+    /// original (true both for an untouched AI suggestion and for a live analyst edit).</summary>
+    private bool Differs(SuggestionField field)
     {
-        if (_form is null || _data is null)
+        if (_form is null || _review is null)
         {
             return false;
         }
 
+        var ticket = _review.Ticket;
         return field switch
         {
-            ReviewField.WorkType => TriageVocabulary.ToJsonName(_form.WorkType) != _data.OriginalWorkType,
-            ReviewField.AffectedService => !string.Equals(_form.AffectedService, _data.OriginalAffectedService, StringComparison.Ordinal),
-            ReviewField.ServiceTeam => !string.Equals(_form.ServiceTeam, _data.OriginalServiceTeam, StringComparison.Ordinal),
-            ReviewField.Assignee => !string.Equals(_form.Assignee, _data.OriginalAssignee, StringComparison.Ordinal),
-            ReviewField.Urgency => TriageVocabulary.ToJsonName(_form.Urgency) != _data.OriginalUrgency,
-            ReviewField.Impact => TriageVocabulary.DbImpactNameFor(_form.Impact) != _data.OriginalImpact,
-            ReviewField.Resolution => !string.Equals(_form.Resolution is { } r ? TriageVocabulary.ToJsonName(r) : null, _data.OriginalResolution, StringComparison.Ordinal),
+            SuggestionField.WorkType => ValueDiffers(TriageVocabulary.ToJsonName(_form.WorkType), ticket.WorkType),
+            SuggestionField.AffectedServices => DiffersServices(_form.AffectedServices, ticket.AffectedServices),
+            SuggestionField.ServiceTeams => ValueDiffers(_form.ServiceTeam, OriginalServiceTeam),
+            SuggestionField.Assignee => ValueDiffers(_form.Assignee, ticket.Assignee),
+            SuggestionField.Urgency => ValueDiffers(TriageVocabulary.ToJsonName(_form.Urgency), ticket.Urgency),
+            SuggestionField.Impact => ValueDiffers(TriageVocabulary.ToJsonName(_form.Impact), ticket.Impact),
+            SuggestionField.ResolutionStatus => ValueDiffers(_form.Resolution is { } r ? TriageVocabulary.ToJsonName(r) : null, ticket.Resolution),
             _ => false,
         };
     }
 
-    private string FieldClass(ReviewField field) => Differs(field) ? "tt-field-changed" : "";
+    private static bool ValueDiffers(string? current, string? original) =>
+        !string.Equals(current, original, StringComparison.OrdinalIgnoreCase);
 
-    private string OriginalDisplay(ReviewField field) => (_data is null ? null : field switch
+    private static bool DiffersServices(IReadOnlyCollection<string> current, IReadOnlyCollection<string> original) =>
+        !current.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(original);
+
+    private string FieldClass(SuggestionField field) => Differs(field) ? "tt-field-changed" : "";
+
+    private string OriginalDisplay(SuggestionField field) => (_review is null ? null : field switch
     {
-        ReviewField.WorkType => _data.OriginalWorkType,
-        ReviewField.AffectedService => _data.OriginalAffectedService,
-        ReviewField.ServiceTeam => _data.OriginalServiceTeam,
-        ReviewField.Assignee => _data.OriginalAssignee,
-        ReviewField.Urgency => _data.OriginalUrgency,
-        ReviewField.Impact => _data.OriginalImpact,
-        ReviewField.Resolution => _data.OriginalResolution,
+        SuggestionField.WorkType => _review.Ticket.WorkType,
+        SuggestionField.AffectedServices => OriginalAffectedServices,
+        SuggestionField.ServiceTeams => OriginalServiceTeam,
+        SuggestionField.Assignee => _review.Ticket.Assignee,
+        SuggestionField.Urgency => _review.Ticket.Urgency,
+        SuggestionField.Impact => _review.Ticket.Impact,
+        SuggestionField.ResolutionStatus => _review.Ticket.Resolution,
         _ => null,
     }) ?? "—";
-
-    private string? Hint(ReviewField field) => _data?.Hints.GetValueOrDefault(field);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -107,51 +119,67 @@ public partial class Review : IDisposable
     {
         if (firstRender)
         {
-            Store.TicketChanged += OnTicketChanged;
+            _timer = new PeriodicTimer(RefreshInterval);
+            _refreshLoop = RefreshLoopAsync();
         }
+    }
 
-        if (_effectsForId != Id)
+    private async Task RefreshLoopAsync()
+    {
+        try
         {
-            _effectsForId = Id;
-            // Opening the review page jumps a still-queued ticket to the front (FR10) and records the first-open
-            // timestamp for later metrics - never a pipeline/LLM call (NFR2/Leitplanke 7).
-            Store.Prioritize(Id);
-            Store.MarkOpened(Id);
+            while (await _timer!.WaitForNextTickAsync(_cts.Token))
+            {
+                if (_state is TicketDisplayState.Approved or TicketDisplayState.Rejected)
+                {
+                    continue;
+                }
+
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposed.
         }
     }
 
     private async Task LoadAsync()
     {
-        _data = await BoardQuery.GetReviewAsync(Id, _cts.Token);
-        _form = _data?.FormBaseline is { } baseline ? new ReviewFormModel(baseline) : null;
+        _review = await ReviewService.OpenAsync(Id, _cts.Token);
+        _state = DeriveState(_review);
+        _failureReason = _review is { IsFailed: true } ? await BoardQuery.GetLatestFailureReasonAsync(Id, _cts.Token) : null;
+        _form = _review?.EffectiveSuggestion is { } effective ? new ReviewFormModel(ReviewFormSnapshot.From(effective)) : null;
     }
 
-    private void OnTicketChanged(int ticketId)
+    private static TicketDisplayState? DeriveState(TicketReview? review) => review switch
     {
-        if (ticketId != Id)
-        {
-            return;
-        }
+        null => null,
+        { Decision.Decision: ReviewDecision.Approved } => TicketDisplayState.Approved,
+        { Decision.Decision: ReviewDecision.Rejected } => TicketDisplayState.Rejected,
+        { IsFailed: true } => TicketDisplayState.Failed,
+        { IsAnalysing: true } => TicketDisplayState.Analysing,
+        _ => TicketDisplayState.Pending,
+    };
 
-        // Only reason a Pending ticket's TicketChanged fires for its own id is another tab deciding it (AC10) -
-        // reloading here never discards in-progress edits for a still-Pending ticket, since that combination
-        // cannot occur (Leitplanke 8).
-        _ = InvokeAsync(async () =>
-        {
-            await LoadAsync();
-            StateHasChanged();
-        });
-    }
+    private Task AcceptAsync() => DecideAsync(() => ReviewService.ApproveAsync(Id, _review!.Version, edits: null, _cts.Token), $"Ticket #{Id} accepted.");
 
-    private Task AcceptAsync() => DecideAsync(() => DecisionService.ApproveAsync(Id, _form!, _cts.Token), $"Ticket #{Id} accepted.");
-
-    private Task SaveAsync() => DecideAsync(() => DecisionService.ApproveAsync(Id, _form!, _cts.Token), $"Ticket #{Id} saved.");
+    private Task SaveAsync() => DecideAsync(() => ReviewService.ApproveAsync(Id, _review!.Version, _form!.ToEdits(), _cts.Token), $"Ticket #{Id} saved.");
 
     private void ResetForm() => _form?.Reset();
 
-    private async Task DecideAsync(Func<Task<DecisionResult>> action, string successMessage)
+    private void OnAffectedServicesChanged(IEnumerable<string> values)
     {
-        if (_busy || _form is null)
+        if (_form is not null)
+        {
+            _form.AffectedServices = [.. values];
+        }
+    }
+
+    private async Task DecideAsync(Func<Task<ReviewResult>> action, string successMessage)
+    {
+        if (_busy || _form is null || _review is null)
         {
             return;
         }
@@ -170,7 +198,7 @@ public partial class Review : IDisposable
 
     private async Task RejectAsync()
     {
-        if (_busy)
+        if (_busy || _review is null)
         {
             return;
         }
@@ -185,7 +213,7 @@ public partial class Review : IDisposable
         _busy = true;
         try
         {
-            var decision = await DecisionService.RejectAsync(Id, reason, _cts.Token);
+            var decision = await ReviewService.RejectAsync(Id, _review.Version, reason, _cts.Token);
             await AfterDecisionAsync(decision, $"Ticket #{Id} rejected.");
         }
         finally
@@ -194,11 +222,11 @@ public partial class Review : IDisposable
         }
     }
 
-    private async Task AfterDecisionAsync(DecisionResult result, string successMessage)
+    private async Task AfterDecisionAsync(ReviewResult result, string successMessage)
     {
-        if (result.Outcome == DecisionOutcome.AlreadyDecided)
+        if (!result.IsSuccess)
         {
-            Snackbar.Add($"Ticket #{Id} was already decided.", Severity.Warning);
+            Snackbar.Add(result.Message ?? $"Ticket #{Id} could not be decided.", Severity.Warning);
             await LoadAsync();
             return;
         }
@@ -208,22 +236,46 @@ public partial class Review : IDisposable
         Navigation.NavigateTo(nextId is { } next ? $"/review/{next}" : "/tickets");
     }
 
-    private async Task AnalyseNowAsync()
-    {
-        await IngestService.EnqueueExistingAsync(Id, _cts.Token);
-        await LoadAsync();
-    }
-
     private async Task RequeueAsync()
     {
-        Store.Requeue(Id);
-        await LoadAsync();
+        if (_busy || _review is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await ReviewService.RequeueFailedAsync(Id, _review.Version, _cts.Token);
+            if (!result.IsSuccess)
+            {
+                Snackbar.Add(result.Message ?? "Could not re-queue this ticket.", Severity.Warning);
+            }
+
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        Store.TicketChanged -= OnTicketChanged;
-        _cts.Cancel();
+        await _cts.CancelAsync();
+        _timer?.Dispose();
+        if (_refreshLoop is not null)
+        {
+            try
+            {
+                await _refreshLoop;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on dispose.
+            }
+        }
+
         _cts.Dispose();
     }
 }

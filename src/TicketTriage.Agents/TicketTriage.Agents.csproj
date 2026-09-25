@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <InternalsVisibleTo Include="TicketTriage.Agents.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TicketTriage.Infrastructure\TicketTriage.Infrastructure.csproj" />
   </ItemGroup>
 

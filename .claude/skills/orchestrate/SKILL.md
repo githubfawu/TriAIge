@@ -47,7 +47,7 @@ Dispatch Agent `subagent_type: "Plan"`, `model: "opus"` with `docs/features/<fea
 
 A good slice cuts through all touched layers (Core → Infrastructure → Agents → Web/Batch), is testable end-to-end without the next slice, and fits one session (≈ ≤ 3 new files + tests). First slice is usually the thinnest end-to-end path (e.g. one ticket → agent → decision shown/written).
 
-Output `docs/features/<feature>/plan.md`: architecture overview, per slice (name, goal, files with project, tests, acceptance criteria covered, complexity S/M/L), migrations needed, build commands, slice dependencies.
+Output `docs/features/<feature>/plan.md`: architecture overview, per slice (name, goal, files with project, tests, acceptance criteria covered, complexity S/M/L), schema changes (no migrations: `EnsureCreated`, note "delete data/triage.db*"), build commands, slice dependencies.
 
 **STOP** — show the slice table, ask via `AskUserQuestion`: approve, and which slice first?
 

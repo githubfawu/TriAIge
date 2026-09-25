@@ -1,81 +1,289 @@
 @page "/upload"
-@using Microsoft.AspNetCore.Components.Forms
+@implements IAsyncDisposable
+@inject ChallengeUploadService UploadService
+@inject IJSRuntime JS
+@inject ILogger<Upload> Logger
+@inject IOptions<UploadOptions> UploadSettings
 
 <PageTitle>Upload · TriAIge</PageTitle>
 
 <MudText Typo="Typo.h4" Class="mb-4">Upload tickets</MudText>
 
-<MudPaper Outlined Class="pa-4 mb-4">
-    <MudFileUpload T="IBrowserFile" FilesChanged="OnFilePickedAsync" Accept=".json" DragAndDrop="true">
-        <CustomContent Context="fileUploadContext">
-            <MudButton HtmlTag="label"
-                       Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.UploadFile"
-                       OnClick="@fileUploadContext.OpenFilePickerAsync">
-                Choose challenge.json
+<MudText Class="mb-4">
+    Upload the challenge JSON (envelope with <code>records</code> or a plain array). The tickets are ingested, analysed by the
+    background worker and exported as <code>result.json</code>. Analysed tickets also appear under
+    <MudLink Href="tickets">Tickets</MudLink>.
+</MudText>
+
+@if (_state is UploadState.Idle or UploadState.Error)
+{
+    <MudFileUpload T="IBrowserFile" Accept=".json" OnFilesChanged="OnFileSelectedAsync">
+        <CustomContent Context="picker">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.UploadFile"
+                       OnClick="picker.OpenFilePickerAsync">
+                Choose challenge .json
             </MudButton>
         </CustomContent>
     </MudFileUpload>
-    <MudText Typo="Typo.caption" Class="d-block mt-2">JSON array of tickets, up to 1 MB / 200 tickets.</MudText>
-</MudPaper>
-
-@if (_loadingPreview)
-{
-    <MudProgressLinear Indeterminate Color="Color.Primary" Class="mb-4" />
 }
 
-@if (_fileError is not null)
+@if (_error is not null)
 {
-    <MudAlert Severity="Severity.Error" Class="mb-4">@_fileError</MudAlert>
+    <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
 }
-else if (_preview is { FileError: { } fileError })
-{
-    <MudAlert Severity="Severity.Error" Class="mb-4">@fileError</MudAlert>
-}
-else if (_preview is { } preview)
-{
-    <MudText Typo="Typo.body1" Class="mb-2">@preview.ValidCount of @preview.Entries.Count valid.</MudText>
 
-    @if (!preview.TrainingDataPresent)
+@if (_state == UploadState.Uploading)
+{
+    <MudProgressLinear Indeterminate Class="mt-4" />
+    <MudText Class="mt-2">Reading and ingesting the file...</MudText>
+}
+
+@if (_session is not null)
+{
+    <MudPaper Class="pa-4 mt-4">
+        <MudText Typo="Typo.h6">Ingest summary</MudText>
+        <MudText>
+            Created @_session.Counts.Created · Updated @_session.Counts.Updated · Unchanged @_session.Counts.Unchanged · Locked @_session.Counts.Locked
+        </MudText>
+        @if (_session.DuplicateKeys.Count > 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense Class="mt-2">@_session.DuplicateKeys.Count duplicate key(s) in the file.</MudAlert>
+        }
+        @if (_session.Counts.Locked > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense Class="mt-2">
+                @_session.Counts.Locked ticket(s) are locked (already reviewed); the export contains the stored suggestion instead of a new analysis. For records without an Issue key that suggestion may belong to a different ticket if a different file with keyless records was uploaded earlier.
+            </MudAlert>
+        }
+    </MudPaper>
+}
+
+@if (_state == UploadState.Waiting && _progress is not null)
+{
+    <MudPaper Class="pa-4 mt-4">
+        <MudProgressLinear Color="Color.Primary" Size="Size.Large" Value="@ProgressPercent" Class="mb-2" />
+        <MudText>Analysed @_progress.Analysed of @_progress.Total - @_progress.Pending pending - @_progress.Fallbacks fallback</MudText>
+        @if (_progress.Worker == WorkerStatus.Starting)
+        {
+            <MudAlert Severity="Severity.Info" Dense Class="mt-2">Waiting for the analysis worker to start...</MudAlert>
+        }
+        <MudButton Class="mt-2" Variant="Variant.Outlined" OnClick="StopWaiting">Stop waiting</MudButton>
+    </MudPaper>
+}
+
+@if (_state == UploadState.Ready && _export is not null)
+{
+    @if (_notRunning)
     {
-        <MudAlert Severity="Severity.Warning" Class="mb-2">
-            The database has no tickets yet. The training import only runs into an empty database, so saving now
-            will permanently prevent it. Import the training data first or confirm.
+        <MudAlert Severity="Severity.Warning" Class="mt-4">
+            The analysis worker is not running. Pending tickets use the deterministic fallback in the export.
         </MudAlert>
-        <MudCheckBox T="bool" @bind-Value="_confirmWithoutTrainingData" Label="Save anyway" Class="mb-2" />
+    }
+    else if (_stoppedEarly || _timedOut)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-4">
+            @(_timedOut ? "Waiting timed out." : "Stopped waiting.") @_export.NotAnalysed ticket(s) were not analysed yet and use the fallback in the export.
+        </MudAlert>
     }
 
-    <MudSimpleTable Dense Bordered Class="mb-4">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Issue key</th>
-                <th>Summary</th>
-                <th>Valid</th>
-                <th>DB</th>
-                <th>Notes</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var entry in preview.Entries)
-            {
-                <tr>
-                    <td>@(entry.Index + 1)</td>
-                    <td>@entry.IssueKey</td>
-                    <td>@entry.Summary</td>
-                    <td>@(entry.IsValid ? "Valid" : "Invalid")</td>
-                    <td>@DbMatchLabel(entry.DbMatch)</td>
-                    <td>@string.Join(" ", entry.Reason is { } reason ? [reason] : entry.Hints)</td>
-                </tr>
-            }
-        </tbody>
-    </MudSimpleTable>
+    <MudPaper Class="pa-4 mt-4">
+        <MudText>@_export.Rows.Count record(s) · @_export.Fallbacks fallback · @_export.NotAnalysed not analysed</MudText>
+        <MudStack Row Class="mt-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="DownloadAsync">
+                Download result.json
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="Reset">Upload another file</MudButton>
+            <MudButton Variant="Variant.Text" Href="tickets">Open tickets</MudButton>
+        </MudStack>
+    </MudPaper>
 
-    <MudButton Variant="Variant.Filled"
-               Color="Color.Success"
-               Disabled="@(!CanSave || _saving)"
-               OnClick="SaveAndAnalyseAsync">
-        Save &amp; analyse
-    </MudButton>
+    <MudTable T="ChallengeResultRow" Items="_export.Rows" Dense Hover Class="mt-4">
+        <HeaderContent>
+            <MudTh>#/key</MudTh>
+            <MudTh>Summary</MudTh>
+            <MudTh>Work type</MudTh>
+            <MudTh>Services</MudTh>
+            <MudTh>Priority</MudTh>
+            <MudTh>Team(s)</MudTh>
+            <MudTh>Assignee</MudTh>
+            <MudTh>Resolution</MudTh>
+            <MudTh>State</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="#/key">@(string.IsNullOrEmpty(context.Ticket.Key) ? ChallengeDocument.PositionalKey(context.Position) : context.Ticket.Key)</MudTd>
+            <MudTd DataLabel="Summary">@context.Ticket.Summary</MudTd>
+            <MudTd DataLabel="Work type">@context.Result.WorkType</MudTd>
+            <MudTd DataLabel="Services">@string.Join(", ", context.Result.AffectedServices)</MudTd>
+            <MudTd DataLabel="Priority">@context.Result.Priority</MudTd>
+            <MudTd DataLabel="Team(s)">@string.Join(", ", context.Result.ServiceTeams)</MudTd>
+            <MudTd DataLabel="Assignee">@context.Result.Assignee</MudTd>
+            <MudTd DataLabel="Resolution">@context.Result.Resolution</MudTd>
+            <MudTd DataLabel="State">
+                @if (!context.WasAnalysed)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">not analysed</MudChip>
+                }
+                else if (context.IsFallback)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">fallback</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">analysed</MudChip>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private enum UploadState { Idle, Uploading, Waiting, Ready, Error }
+
+    private readonly CancellationTokenSource _disposeCts = new();
+    private CancellationTokenSource? _pollCts;
+    private UploadState _state = UploadState.Idle;
+    private UploadSession? _session;
+    private UploadProgress? _progress;
+    private UploadExport? _export;
+    private string? _error;
+    private bool _notRunning;
+    private bool _timedOut;
+    private bool _stoppedEarly;
+
+    private double ProgressPercent => _progress is { Total: > 0 } p ? 100.0 * p.Analysed / p.Total : 0;
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        Reset();
+        if (file.Size > ChallengeDocument.MaxFileBytes)
+        {
+            Fail($"The file is larger than the allowed {ChallengeDocument.MaxFileBytes / (1024 * 1024)} MB.");
+            return;
+        }
+
+        _state = UploadState.Uploading;
+        var ct = _disposeCts.Token;
+        try
+        {
+            await using var stream = file.OpenReadStream(ChallengeDocument.MaxFileBytes, ct);
+            _session = await UploadService.UploadAsync(stream, ct);
+            _state = UploadState.Waiting;
+            await WaitForAnalysisAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // The circuit is going away.
+        }
+        catch (ChallengeFormatException ex)
+        {
+            Fail(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Challenge upload failed.");
+            Fail($"The upload failed ({ex.GetType().Name}).");
+        }
+    }
+
+    private async Task WaitForAnalysisAsync(CancellationToken ct)
+    {
+        CancelPoll();
+        _pollCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var pollToken = _pollCts.Token;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(UploadSettings.Value.PollIntervalSeconds));
+        try
+        {
+            do
+            {
+                _progress = await UploadService.GetProgressAsync(_session!, pollToken);
+                await InvokeAsync(StateHasChanged);
+                if (_progress.IsComplete)
+                {
+                    break;
+                }
+
+                if (_progress.Worker == WorkerStatus.NotRunning)
+                {
+                    _notRunning = true;
+                    break;
+                }
+
+                if (_progress.TimedOut)
+                {
+                    _timedOut = true;
+                    break;
+                }
+            }
+            while (await timer.WaitForNextTickAsync(pollToken));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _stoppedEarly = true;
+        }
+
+        try
+        {
+            _export = await UploadService.ExportAsync(_session!, ct);
+            _state = UploadState.Ready;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Challenge export failed.");
+            Fail($"The export failed ({ex.GetType().Name}).");
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CancelPoll()
+    {
+        _pollCts?.Cancel();
+        _pollCts?.Dispose();
+        _pollCts = null;
+    }
+
+    private void StopWaiting() => _pollCts?.Cancel();
+
+    private async Task DownloadAsync()
+    {
+        if (_export is null)
+        {
+            return;
+        }
+
+        using var stream = new MemoryStream(_export.Json);
+        using var reference = new DotNetStreamReference(stream);
+        await JS.InvokeVoidAsync("downloadFileFromStream", _disposeCts.Token, "result.json", reference);
+    }
+
+    private void Fail(string message)
+    {
+        _error = message;
+        _state = UploadState.Error;
+    }
+
+    private void Reset()
+    {
+        CancelPoll();
+        _state = UploadState.Idle;
+        _session = null;
+        _progress = null;
+        _export = null;
+        _error = null;
+        _notRunning = false;
+        _timedOut = false;
+        _stoppedEarly = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _disposeCts.CancelAsync();
+        CancelPoll();
+        _disposeCts.Dispose();
+    }
 }

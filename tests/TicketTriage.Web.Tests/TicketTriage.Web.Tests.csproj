@@ -7,8 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\TicketTriage.Core\TicketTriage.Core.csproj" />
-    <ProjectReference Include="..\..\src\TicketTriage.Infrastructure\TicketTriage.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\TicketTriage.Web\TicketTriage.Web.csproj" />
   </ItemGroup>
 

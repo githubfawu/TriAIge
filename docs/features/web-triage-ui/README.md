@@ -3,47 +3,66 @@
 Human-in-the-loop UI in `TicketTriage.Web`: upload tickets, watch the analysis worker, review suggestions, see metrics.
 Requirements: [requirements.md](requirements.md) · Plan: [plan.md](plan.md).
 
+Built on top of the team's real backend (`TicketTriage.Core`/`Infrastructure` ingestion, analysis worker and review
+service) - this project no longer has its own pipeline plumbing (see "How it works" below).
+
 ## Pages
 
 | Route | What it does |
 |---|---|
-| `/` | Dashboard: ticket counts per state (click → filtered list), approval rate (DB), acceptance rate / edits per field / average durations (current session), health checks |
-| `/upload` | Drop a JSON file in `challenge.json` format (top-level array of Jira tickets, max 1 MB / 200 entries). Preview shows valid/invalid entries and DB matches; **Save & analyse** stores them and queues them for the agent |
-| `/tickets` | Traffic-light list of triage tickets, live updates, filter chips (`?state=Pending` etc.), Re-queue for failed tickets |
+| `/` | Dashboard: ticket counts per state (click → filtered list), review metrics from `ITriageMetricsService` (acceptance rate, edits per field, median durations), health checks |
+| `/upload` | Drop a challenge JSON file (envelope with `records` or a plain array). Ingests via `ChallengeUploadService`, polls the analysis worker, offers **Download result.json** |
+| `/tickets` | Traffic-light list of triage tickets, refreshed every 2 s, filter chips (`?state=Pending` etc.), Re-queue for failed tickets |
 | `/review/{id}` | Original next to the suggestion. **Accept** (unchanged), **Save** (with edits), **Reset**, **Reject** (reason required). Priority is always recomputed from `PriorityMatrix` |
 
 ## Traffic light
 
 | Light | State | Source |
 |---|---|---|
-| grey | Queued | in-memory queue |
-| blue (pulsing) | Analysing | in-memory worker |
-| red + warning | Failed (3 attempts) | in-memory, **Re-queue** button |
-| yellow | Pending (`ReviewDecision.Pending`) | DB: suggestion in `*Changed` columns, status not decided |
-| green | Approved (`ReviewDecision.Approved`) | DB status `HumanApproved` |
-| red | Rejected (`ReviewDecision.Rejected`) | DB status `HumanRejected` |
+| grey | Queued | Ticket status `New`, not claimed, retries below the limit |
+| blue (pulsing) | Analysing | Ticket status `New`, claimed by the analysis worker |
+| red + warning | Failed | Ticket status `New`, retries exhausted (`TriageOptions.RetryCount`) - **Re-queue** button (`IReviewService.RequeueFailedAsync`) |
+| yellow | Pending (`ReviewDecision.Pending`) | Ticket status `Reviewing`/`Reviewed` - a suggestion is stored, awaiting a human decision |
+| green | Approved (`ReviewDecision.Approved`) | Ticket status `HumanApproved` |
+| red | Rejected (`ReviewDecision.Rejected`) | Ticket status `HumanRejected` |
 
 Field badges show who decides a value, in the pipeline colours of `docs/architecture.md` §4: **Code** (blue), **LLM** (amber), **LLM + Code** (violet).
 
 ## How it works
 
-- `Triage/` holds the Web-local services; pages never query EF directly.
-- Upload → one transaction inserts tickets (status `New`) → `TriageSessionStore` queues them → `TriageWorker` (BackgroundService) calls `ITriagePipeline` per ticket (scope + 60 s timeout, 3 attempts) → `SuggestionWriter` writes all `*Changed` columns and sets status `Reviewed`.
-- Decisions use one conditional `ExecuteUpdateAsync` (only if the ticket is still undecided) → a second tab gets "Already decided".
-- Issue key, draft comment, confidence, reject reason, timestamps and edit counts live **in memory** and are lost on restart; tickets, suggestions and decisions are in SQLite.
+- `Triage/` holds only Web-local UI helpers: `ReviewFormModel` (form state + `PriorityMatrix.Resolve`), `TicketDisplayState`
+  (+ `SuggestionFieldOwners` for the badges), `TriageVocabulary` (enum display names) and `TicketBoardQuery` (the one
+  read-only query the board/dashboard need that main's ports don't provide in bulk - it reads `TicketEntity`/
+  `TriageSuggestionEntity`/`TriageFailureEntity` directly, `AsNoTracking`, never the ~20k training rows).
+  `Upload/ChallengeUploadService` and `Analysis/AnalysisWorker` are the team's.
+- Upload → `ChallengeUploadService.UploadAsync` ingests via `ITicketIngestor` (status `New`) → the background
+  `AnalysisWorker`/`ITriagePipeline` (Infrastructure) analyses and stores a `TriageSuggestion` → the Upload page polls
+  `IAnalysisMonitor` and exports `result.json` once complete (or on demand, with fallbacks for anything still pending).
+- The Review page never injects `ITriagePipeline` (opening a ticket never calls the LLM): it reads/writes only through
+  `IReviewService` (`OpenAsync`/`ApproveAsync`/`RejectAsync`/`RequeueFailedAsync`), which handles optimistic concurrency
+  via the ticket's row version.
+- Everything (issue key, suggestion, decision, edits, timestamps) is in SQLite; nothing is session-only RAM state
+  anymore. The Tickets/Review pages poll every 2 s instead of subscribing to an event, since main's backend has no
+  ticket-changed notification.
 
-## Known limitations
+## Known limitations / deviations from the original Slice 1-3 design
 
-- Suggestions come from the team's `Stub*` pipeline until it is replaced (placeholder values, no references).
-- `TrainingDataImporter` (Infrastructure) still looks up the removed `Finished` status and throws when `training.json` exists — team fix needed. It also skips the import if the DB has any ticket; the upload page warns when the DB is empty.
-- Only the first affected service / service team is persisted (single FK column).
-- FR24 (manual ticket entry) not implemented. No authentication (out of scope).
-- `dotnet format --verify-no-changes` on the whole solution fails on Windows checkouts (`core.autocrlf=true` vs. `end_of_line = lf`, no `.gitattributes`); check with `--include src/TicketTriage.Web/ tests/TicketTriage.Web.Tests/`.
+- No manual "Analyse now" for a ticket stuck outside the worker's queue: main's `AnalysisWorker` polls on a fixed
+  interval and always picks up every `New` ticket itself, so there is nothing to trigger by hand anymore.
+- No per-suggestion "confidence" score: `TriageSuggestion` doesn't have one. `IsFallback` (shown as a warning banner)
+  is the closest available signal.
+- The Review page can't tell "training ticket" apart from "unknown id" - `IReviewService.OpenAsync` returns `null`
+  for both, so both show the same "Ticket #n was not found" message.
+- Affected services are a genuine multi-select now (main's `TriageSuggestion`/`ReviewEdits` support a list); service
+  team is still a single value, matching `ReviewEdits.ServiceTeams` (`string?`, not a list).
+- `dotnet format --verify-no-changes` on the whole solution still fails on Windows checkouts because of a pre-existing
+  CRLF/LF mismatch in `tests/TicketTriage.Web.Tests/TestSupport.cs` (`core.autocrlf=true`, no `.gitattributes`); check
+  with `--include src/TicketTriage.Web/ tests/TicketTriage.Web.Tests/` and expect only that file to differ.
 
 ## Test
 
 ```bash
-dotnet test --project tests/TicketTriage.Web.Tests/TicketTriage.Web.Tests.csproj
+dotnet test --solution TicketTriage.slnx --filter "FullyQualifiedName~TicketTriage.Web.Tests"
 ```
 
 Manual demo: start `aspire run`, open `/upload`, drop `tests/TicketTriage.Web.Tests/Fixtures/challenge-sample.json` (5 tickets).

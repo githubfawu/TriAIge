@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using TicketTriage.Core.Abstractions;
 using TicketTriage.Core.Domain;
 using TicketTriage.Web.Components.Pages;
@@ -10,122 +9,103 @@ namespace TicketTriage.Web.Tests;
 
 public sealed class ReviewPageTests : TriageBunitContext
 {
-    private static Ticket MakeTicket(string key) => new() { Key = key, Summary = $"Summary for {key}" };
-
-    private static ReviewFormSnapshot MakeBaseline(
+    private static TriageSuggestion MakeSuggestion(
         WorkType workType = WorkType.Incident,
-        string? affectedService = "Outlook & Email",
+        IReadOnlyList<string>? affectedServices = null,
         string? serviceTeam = "Service Desk",
         string? assignee = "Dana Keller",
         Urgency urgency = Urgency.Medium,
         Impact impact = Impact.Moderate,
         ResolutionStatus? resolution = null,
-        string? comment = null) =>
-        new(workType, affectedService, serviceTeam, assignee, urgency, impact, resolution, comment);
+        string? comment = "Draft.") => new()
+        {
+            TicketKey = "DB-1",
+            WorkType = workType,
+            AffectedServices = affectedServices ?? ["Outlook & Email"],
+            ServiceTeams = serviceTeam is null ? [] : [serviceTeam],
+            Assignee = assignee,
+            Urgency = urgency,
+            Impact = impact,
+            ResolutionStatus = resolution,
+            DraftComment = comment,
+        };
 
-    private static TicketReviewData MakeData(
+    private static TicketReview MakeReview(
         int id = 1,
         string summary = "Ticket summary",
-        TicketDisplayState? state = TicketDisplayState.Pending,
-        bool isTrainingTicket = false,
-        bool hasSuggestion = true,
-        ReviewFormSnapshot? formBaseline = null,
-        string? originalAffectedService = "Trading Platform",
-        string? originalServiceTeam = "Trading Support",
+        bool isAnalysing = false,
+        bool isFailed = false,
+        TriageSuggestion? suggestion = null,
+        ReviewDecisionInfo? decision = null,
+        string? originalWorkType = "Incident",
+        IReadOnlyList<string>? originalAffectedServices = null,
+        IReadOnlyList<string>? originalServiceTeams = null,
         string? originalAssignee = "Original Assignee",
         string? originalUrgency = "Low",
         string? originalImpact = "Lowest",
-        IReadOnlyDictionary<ReviewField, string>? hints = null,
-        string? failureReason = null,
-        string? rejectReason = null) => new(
-        id,
-        $"TT-{id}",
-        summary,
-        Description: null,
-        Comments: [],
-        state,
-        isTrainingTicket,
-        failureReason,
-        rejectReason,
-        "Incident",
-        originalAffectedService,
-        originalServiceTeam,
-        originalAssignee,
-        originalUrgency,
-        originalImpact,
-        OriginalPriority: "Low",
-        OriginalResolution: null,
-        hasSuggestion,
-        formBaseline ?? (hasSuggestion ? MakeBaseline() : null),
-        hints ?? new Dictionary<ReviewField, string>(),
-        ["Service Desk", "Trading Support"],
-        ["Outlook & Email", "Trading Platform"],
-        [],
-        null);
-
-    private static void RegisterCommonServices(TriageBunitContext context, ITriageBoardQuery boardQuery, TriageSessionStore store, ITriagePipeline? pipeline = null)
-    {
-        context.Services.AddSingleton(store);
-        context.Services.AddSingleton(boardQuery);
-        context.Services.AddSingleton<IUploadIngestService>(new FakeIngestService());
-        context.Services.AddSingleton<IReviewDecisionService>(new FakeDecisionService());
-        if (pipeline is not null)
+        string? originalPriority = "Low",
+        string? originalResolution = null) => new(
+        new Ticket
         {
-            context.Services.AddSingleton(pipeline);
-        }
+            Id = id,
+            Key = $"DB-{id}",
+            Summary = summary,
+            WorkType = originalWorkType,
+            AffectedServices = originalAffectedServices ?? ["Trading Platform"],
+            ServiceTeams = originalServiceTeams ?? ["Trading Support"],
+            Assignee = originalAssignee,
+            Urgency = originalUrgency,
+            Impact = originalImpact,
+            Priority = originalPriority,
+            Resolution = originalResolution,
+        },
+        suggestion,
+        suggestion,
+        "Reviewing",
+        1,
+        isAnalysing,
+        isFailed,
+        decision,
+        []);
+
+    private static (FakeReviewService ReviewService, FakeTicketBoardQuery BoardQuery) RegisterServices(TriageBunitContext context, TicketReview? review)
+    {
+        var reviewService = new FakeReviewService { Review = review };
+        var boardQuery = new FakeTicketBoardQuery();
+        context.Services.AddSingleton<IReviewService>(reviewService);
+        context.Services.AddSingleton<ITicketBoardQuery>(boardQuery);
+        return (reviewService, boardQuery);
     }
 
     [Fact]
-    public async Task QueuedTicket_ShowsAnalysing_MovesToFront_NeverCallsPipeline_ThenShowsFormWithoutReload_PerAC12()
+    public void QueuedTicket_ShowsAnalysing_PerAC12()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var pipeline = new FakeTriagePipeline();
-        var boardQuery = new FakeReviewBoardQuery { Data = MakeData(1, state: TicketDisplayState.Queued, hasSuggestion: false, formBaseline: null) };
-        RegisterCommonServices(this, boardQuery, store, pipeline);
-
-        // Ticket 2 is queued first; opening ticket 1's review page should jump it to the front (FR10).
-        store.Register(2, "TT-2", MakeTicket("TT-2"), uploadId: 1);
-        store.Register(1, "TT-1", MakeTicket("TT-1"), uploadId: 1);
+        RegisterServices(this, MakeReview(isAnalysing: true, suggestion: null));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Agent is analysing"));
 
-        var dequeued = await store.DequeueAsync(Xunit.TestContext.Current.CancellationToken);
-        dequeued.TicketId.Should().Be(1);
-
-        // Simulate the worker finishing (never through the page - the page has no ITriagePipeline dependency at all).
-        var suggestion = new TriageSuggestion { TicketKey = "TT-1", WorkType = WorkType.Incident, Urgency = Urgency.Medium, Impact = Impact.Moderate };
-        boardQuery.Data = MakeData(1, state: TicketDisplayState.Pending, hasSuggestion: true, formBaseline: MakeBaseline());
-        store.CompleteAnalysis(1, suggestion, []);
-
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Suggested / edited"));
-        pipeline.Calls.Should().Be(0);
+        cut.Markup.Should().Contain("Agent is analysing");
     }
 
     [Fact]
     public void PendingTicket_ShowsOriginalAndSuggestionSideBySide_WithDiffMarks_PerFR15()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery
-        {
-            Data = MakeData(1, formBaseline: MakeBaseline(affectedService: "Outlook & Email"), originalAffectedService: "Trading Platform"),
-        };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(
+            suggestion: MakeSuggestion(affectedServices: ["Outlook & Email"]),
+            originalAffectedServices: ["Trading Platform"]));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
         cut.Markup.Should().Contain("Trading Platform"); // original, read-only left panel
-        cut.Markup.Should().Contain("Outlook &amp; Email"); // suggested value pre-selected in the form (HTML-escaped &)
-        cut.Markup.Should().Contain("tt-field-changed"); // AffectedService differs from original -> highlighted
+        cut.Markup.Should().Contain("Outlook &amp; Email"); // suggested value pre-selected in the form
+        cut.Markup.Should().Contain("tt-field-changed"); // AffectedServices differs from original -> highlighted
         cut.Markup.Should().Contain("was: Trading Platform");
     }
 
     [Fact]
     public void EditingAField_DisablesAccept_EnablesSave_PerFR18()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery { Data = MakeData(1) };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(suggestion: MakeSuggestion()));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
@@ -141,9 +121,7 @@ public sealed class ReviewPageTests : TriageBunitContext
     [Fact]
     public void ResetButton_RestoresBaselineAfterEdit()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery { Data = MakeData(1, formBaseline: MakeBaseline(assignee: "Dana Keller")) };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(suggestion: MakeSuggestion(assignee: "Dana Keller")));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
         cut.Find("#review-assignee-input").Input("Someone Else");
@@ -158,23 +136,19 @@ public sealed class ReviewPageTests : TriageBunitContext
     [Fact]
     public void FieldBadges_UseOwnerCssClasses_PerAC14()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery { Data = MakeData(1) };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(suggestion: MakeSuggestion()));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
-        cut.Markup.Should().Contain("owner-code"); // Assignee/ServiceTeam/Priority
-        cut.Markup.Should().Contain("owner-llm"); // WorkType/AffectedService
-        cut.Markup.Should().Contain("owner-mixed"); // Urgency/Impact/Resolution/Comment
+        cut.Markup.Should().Contain("owner-code"); // Assignee/ServiceTeams
+        cut.Markup.Should().Contain("owner-llm"); // WorkType/AffectedServices
+        cut.Markup.Should().Contain("owner-mixed"); // Urgency/Impact/ResolutionStatus/DraftComment
     }
 
     [Fact]
     public void ApprovedTicket_IsReadOnly_PerFR20()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery { Data = MakeData(1, state: TicketDisplayState.Approved, formBaseline: null) };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(decision: new ReviewDecisionInfo(ReviewDecision.Approved, null, null, DateTime.UtcNow)));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
@@ -183,14 +157,10 @@ public sealed class ReviewPageTests : TriageBunitContext
     }
 
     [Fact]
-    public void RejectedTicket_ShowsReasonFromRam_PerFR20()
+    public void RejectedTicket_ShowsReason_PerFR20()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery
-        {
-            Data = MakeData(1, state: TicketDisplayState.Rejected, formBaseline: null, rejectReason: "Duplicate of TT-9"),
-        };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(
+            decision: new ReviewDecisionInfo(ReviewDecision.Rejected, "Duplicate of TT-9", null, DateTime.UtcNow)));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
@@ -199,44 +169,10 @@ public sealed class ReviewPageTests : TriageBunitContext
     }
 
     [Fact]
-    public void TrainingTicket_ShowsNotPartOfTriage_PerFR20()
-    {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery
-        {
-            Data = MakeData(1, state: null, isTrainingTicket: true, hasSuggestion: false, formBaseline: null),
-        };
-        RegisterCommonServices(this, boardQuery, store);
-
-        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
-
-        cut.Markup.Should().Contain("Not part of triage");
-    }
-
-    [Fact]
-    public void NewTicketNotQueued_ShowsAnalyseNowButton_PerFR10()
-    {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery
-        {
-            Data = MakeData(1, state: null, isTrainingTicket: false, hasSuggestion: false, formBaseline: null),
-        };
-        RegisterCommonServices(this, boardQuery, store);
-
-        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
-
-        cut.Markup.Should().Contain("Analyse now");
-    }
-
-    [Fact]
     public void FailedTicket_ShowsReasonAndRequeueButton_PerAC11()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery
-        {
-            Data = MakeData(1, state: TicketDisplayState.Failed, hasSuggestion: false, formBaseline: null, failureReason: "InvalidOperationException"),
-        };
-        RegisterCommonServices(this, boardQuery, store);
+        var (_, boardQuery) = RegisterServices(this, MakeReview(isAnalysing: true, isFailed: true));
+        boardQuery.FailureReason = "InvalidOperationException";
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
@@ -247,12 +183,7 @@ public sealed class ReviewPageTests : TriageBunitContext
     [Fact]
     public void ScriptInSummary_IsEscaped_NeverRenderedAsMarkup_PerNFR5()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery
-        {
-            Data = MakeData(1, summary: "<script>alert('xss')</script>"),
-        };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, MakeReview(summary: "<script>alert('xss')</script>", isAnalysing: true));
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 1));
 
@@ -263,46 +194,53 @@ public sealed class ReviewPageTests : TriageBunitContext
     [Fact]
     public void NotFoundTicket_ShowsWarning()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeReviewBoardQuery { Data = null };
-        RegisterCommonServices(this, boardQuery, store);
+        RegisterServices(this, review: null);
 
         var cut = Render<Review>(p => p.Add(x => x.Id, 999));
 
         cut.Markup.Should().Contain("was not found");
     }
 
-    private sealed class FakeReviewBoardQuery : ITriageBoardQuery
+    [Fact]
+    public void AcceptAsync_NoEdits_CallsApproveWithNullEdits_AndNavigatesToTickets()
     {
-        public TicketReviewData? Data { get; set; }
+        var (reviewService, boardQuery) = RegisterServices(this, MakeReview(suggestion: MakeSuggestion()));
+        boardQuery.NextPendingId = null;
+        var navigation = Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
 
-        public Task<IReadOnlyList<TicketBoardRow>> GetRowsAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<TicketBoardRow>>([]);
+        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
+        cut.Find("#review-accept-button").Click();
 
-        public Task<TicketReviewData?> GetReviewAsync(int id, CancellationToken cancellationToken) => Task.FromResult(Data);
-
-        public Task<int?> GetNextPendingIdAsync(int excludeId, CancellationToken cancellationToken) => Task.FromResult<int?>(null);
-
-        public Task<DecisionTotals> GetDecisionTotalsAsync(CancellationToken cancellationToken) => Task.FromResult(new DecisionTotals(0, 0));
+        reviewService.ApproveCalls.Should().ContainSingle(c => c.TicketId == 1 && c.Edits == null);
+        cut.WaitForAssertion(() => navigation.Uri.Should().EndWith("/tickets"));
     }
 
-    private sealed class FakeIngestService : IUploadIngestService
+    [Fact]
+    public void SaveAsync_WithEdits_CallsApproveWithEdits()
     {
-        public Task<UploadPreview> PreviewAsync(byte[] content, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("Not used by the Review page tests.");
+        var (reviewService, _) = RegisterServices(this, MakeReview(suggestion: MakeSuggestion(assignee: "Dana Keller")));
 
-        public Task<SaveResult> SaveAndEnqueueAsync(UploadPreview preview, bool confirmedWithoutTrainingData, CancellationToken cancellationToken) =>
-            throw new NotSupportedException("Not used by the Review page tests.");
+        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
+        cut.Find("#review-assignee-input").Input("Someone Else");
+        cut.Find("#review-save-button").Click();
 
-        public Task<bool> EnqueueExistingAsync(int ticketId, CancellationToken cancellationToken) => Task.FromResult(true);
+        reviewService.ApproveCalls.Should().ContainSingle(c => c.TicketId == 1 && c.Edits!.Assignee == "Someone Else");
     }
 
-    private sealed class FakeDecisionService : IReviewDecisionService
+    [Fact]
+    public void RejectAsync_ViaDialog_CallsRejectWithReason()
     {
-        public Task<DecisionResult> ApproveAsync(int ticketId, ReviewFormModel form, CancellationToken cancellationToken) =>
-            Task.FromResult(new DecisionResult(DecisionOutcome.Saved));
+        var (reviewService, _) = RegisterServices(this, MakeReview(suggestion: MakeSuggestion()));
 
-        public Task<DecisionResult> RejectAsync(int ticketId, string reason, CancellationToken cancellationToken) =>
-            Task.FromResult(new DecisionResult(DecisionOutcome.Saved));
+        // The dialog is normally hosted by MainLayout's <MudDialogProvider/>; render one here too so the
+        // page's DialogService.ShowAsync call actually has somewhere to render into (mirrors RejectDialogTests).
+        var providerCut = Render<MudBlazor.MudDialogProvider>();
+        var cut = Render<Review>(p => p.Add(x => x.Id, 1));
+        cut.Find("#review-reject-button").Click();
+
+        providerCut.Find("textarea").Input("Duplicate of TT-9");
+        providerCut.Find("button.mud-button-filled").Click();
+
+        cut.WaitForAssertion(() => reviewService.RejectCalls.Should().ContainSingle(c => c.TicketId == 1 && c.Reason == "Duplicate of TT-9"));
     }
 }

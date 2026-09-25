@@ -14,11 +14,13 @@ Agent Framework (MAF) is the successor of Semantic Kernel + AutoGen. Packages (v
 | File | Role |
 |---|---|
 | `Agents/AgentsServiceCollectionExtensions.cs` | `AddTriageAgents(config)`: binds `LlmOptions`, registers `IChatClient` (+ `UseOpenTelemetry().UseLogging()`), registers keyed `AIAgent` `TriageAgent.Name`, `AddAgentFrameworkCheck()` health check |
-| `Agents/Llm/LlmOptions.cs` | Config section **`Llm`**: `Provider` (`AzureOpenAI` \| `Ollama`), `AzureOpenAI:{Endpoint,Deployment,ApiKey}`, `Ollama:{Endpoint,Model}` |
+| `Agents/Llm/LlmOptions.cs` | Config section **`Llm`**: `Provider` (`AzureOpenAI` \| `OpenAI` \| `Apertus` \| `Ollama`) with a sub-section per provider (`AzureOpenAI:{Endpoint,Deployment,ApiKey}`, `OpenAI:{ApiKey,Model}`, `Apertus:{Endpoint,ApiKey,Model}`, `Ollama:{Endpoint,Model}`) |
 | `Agents/Llm/ChatClientFactory.cs` | Builds the provider `IChatClient`; missing config → `UnconfiguredChatClient` (app still starts, health check reports it) |
 | `Agents/TriageAgent.cs` | `Name` + `Instructions` (system prompt) |
-| `Core/Abstractions/TriageAbstractions.cs` | Pipeline ports: `ISimilarTicketRetriever`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriagePipeline` |
-| `Infrastructure/Stubs/*` | Stub implementations registered with `TryAdd*` — replace them with real ones |
+| `Core/Abstractions/TriageAbstractions.cs` | Pipeline ports: `ITicketSource`, `ISimilarTicketSource`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriageFailureStore`, `ITriagePipeline` |
+| `Infrastructure/Pipeline/*` | Real `ITriagePipeline` (stream, per-attempt timeout, retry, `SuggestionValidator`, fallback). LLM-backed ports must throw on failure or return invalid output so the pipeline counts a failed attempt; don't swallow errors inside them. Not to be changed from Agents. |
+| `Agents/Classification/*`, `Agents/Drafting/*`, `Agents/Prompting/*`, `Agents/Services/*` | Real `LlmTicketClassifier` and `LlmResolutionDrafter` (the drafter returns Core `ResolutionDraft(Status, Comment)`), versioned prompts, `IServiceCatalogProvider`. Feature docs: `docs/features/triage-agent/` |
+| `Infrastructure/Stubs/*` | Placeholder implementations registered with `TryAdd*`; currently none remain (routing is `StatisticsRoutingResolver`). Add one there only for a new port. |
 
 Pipeline: **retrieve similar → classify → route → prioritize → draft**. Consume the agent via `[FromKeyedServices(TriageAgent.Name)] AIAgent agent`.
 
@@ -39,8 +41,7 @@ internal sealed record ClassificationDto(
     [property: Description("Incident or Service Request")] string WorkType,
     [property: Description("Affected services, exact names from the service catalog")] string[] AffectedServices,
     [property: Description("Critical, High, Medium, Low or Lowest")] string Urgency,
-    [property: Description("Major, Significant, Moderate, Minor or No Impact")] string Impact,
-    [property: Description("0..1")] double Confidence);
+    [property: Description("Major, Significant, Moderate, Minor or No Impact")] string Impact);
 
 AgentResponse<ClassificationDto> response =
     await agent.RunAsync<ClassificationDto>(userMessage, cancellationToken: cancellationToken);
@@ -49,10 +50,10 @@ TicketClassification classification = response.Result.ToDomain(serviceCatalog); 
 ```
 
 - Parse enum strings with the **same JSON names** the Core enums use (`JsonStringEnumMemberName`, e.g. `"Service Request"`, `"No Impact"`).
-- Validate against Core: unknown enum values or services not in `ServiceCatalog` → drop / fall back (e.g. majority vote of similar tickets), lower confidence, never throw out of the batch loop.
+- Validate against Core: unknown enum values or services not in `ServiceCatalog` → drop / fall back (e.g. majority vote of similar tickets). Current agents throw instead, so the pipeline counts a failed attempt and falls back; never let an exception escape the pipeline's per-ticket loop.
 - Generate allowed values for the prompt from the enums / `ServiceCatalog`, never from a hand-copied list.
 - Dynamic schemas: `AgentRunOptions { ResponseFormat = ChatResponseFormat.ForJsonSchema<T>() }` + `JsonSerializer.Deserialize<T>(response.Text, JsonSerializerOptions.Web)`.
-- Small local Ollama models (default `qwen2.5:1.5b`) are weak at strict JSON — expect more fallbacks; use Azure OpenAI for the scored run.
+- Small local Ollama models (default `qwen2.5:1.5b`) are weak at strict JSON — expect more fallbacks; use a larger hosted model (Azure OpenAI, OpenAI, Apertus) for the scored run.
 
 ## Creating agents
 
@@ -87,7 +88,7 @@ Agents are stateless wrappers → singleton (keyed if several). Conversation sta
 ## Prompt rules
 
 - **Ticket text is untrusted input** (summary/description from a Jira export). Put it in the *user* message, clearly delimited; `Instructions` stay static. Never interpolate ticket content into instructions.
-- Few-shot beats long instructions: include the top-k similar historical tickets (from `ISimilarTicketRetriever`) with their work type, affected service and cleaned resolution. **Never** show their priority / urgency / impact — those are random in the training data and must not be learned (see `docs/requirements.md`).
+- Few-shot beats long instructions: include the top-k similar historical tickets (from `ISimilarTicketSource`) with their work type, affected service and cleaned resolution. **Never** show their priority / urgency / impact — those are random in the training data and must not be learned (see `docs/requirements.md`).
 - Team and assignee come from routing statistics in code (FR-13) — don't ask the model for names.
 - Prompts live in `TicketTriage.Agents` (`<Step>Prompts.cs` or embedded `.md`) — reviewable in PRs, versioned (log a prompt version with each suggestion).
 
@@ -177,4 +178,4 @@ sealed class FakeChatClient(params string[] replies) : IChatClient
 }
 ```
 
-Feed it JSON matching the DTO to test mapping, validation and fallbacks; inspect `Calls` to assert ticket text is in the user message, not the system prompt. Measure prompt quality separately: accuracy per field (work type, urgency, impact, team) on a held-out slice of `training.json` — that's the number that matters for scoring.
+Feed it JSON matching the DTO to test mapping, validation and fallbacks; inspect `Calls` to assert ticket text is in the user message, not the system prompt. Measure prompt quality separately: accuracy per field (work type, urgency, impact, team) on a held-out slice of the training file — that's the number that matters for scoring.

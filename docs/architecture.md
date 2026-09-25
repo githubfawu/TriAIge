@@ -2,7 +2,7 @@
 
 How TicketTriage is built and how a ticket flows through it. Requirements: [requirements.md](requirements.md). Why it's built this way: [adr/](adr/).
 
-> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced.
+> Status legend: **implemented** = in code today, **planned** = required but still a stub (`TODO: implement`). Update this file when a stub is replaced. Pipeline orchestration, normalization, validation, retry and fallback are implemented ([features/triage-pipeline](features/triage-pipeline/README.md)); of the ports behind it, similar tickets ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)), the ticket source and the LLM classifier and drafter ([features/triage-agent](features/triage-agent/README.md)) are implemented; routing (`StatisticsRoutingResolver`, majority vote from the training data) is implemented too; no stub remains. Batch (`BatchRunner`: challenge file → pipeline → result.json) is implemented as a **transitional** direct pipeline call ([features/batch-runner](features/batch-runner/README.md)); the target is ingest → worker → export from the DB (§5.4). Ingest, analysis worker and review persistence are planned (§5).
 
 ## 1. System context
 
@@ -18,31 +18,31 @@ flowchart LR
         dash["Aspire dashboard<br/>logs · traces · health"]
     end
 
-    llm["LLM provider<br/>Azure OpenAI or Ollama"]
+    llm["LLM provider<br/>Azure OpenAI, OpenAI, Apertus or Ollama"]
     files[/"data/*.json<br/>training · challenge · result"/]
 
     analyst -- "review: approve / edit / reject" --> web
     web --> db
     batch --> db
     web -- "IChatClient" --> llm
-    batch -- "IChatClient" --> llm
+    batch -. "IChatClient (today only, transitional)" .-> llm
     files -- "training import" --> web
-    files -- "challenge.json" --> batch
+    files -- "challenge file" --> batch
     batch -- "result.json" --> jury
     web -. OTel .-> dash
     batch -. OTel .-> dash
 ```
 
-Web (UI and analysis worker) and Batch share **one** pipeline implementation (FR-31). The AppHost injects the connection string (`triage-db`) and the LLM configuration (`Llm__*`) from its user secrets.
+All tickets share **one** pipeline implementation (FR-31). Target (decided 2026-09-25, planned): Batch has no LLM access of its own. It ingests the challenge tickets into `triage-db`, the analysis worker in Web analyses them like any ticket, and Batch exports `result.json` from the stored suggestions (§5.4). The dotted `batch → llm` edge is today's transitional direct pipeline call and disappears once ingest, worker and review persistence exist. The AppHost injects the connection string (`triage-db`) and the LLM configuration (`Llm__*`) from its user secrets.
 
 ## 2. Projects and dependencies
 
 ```mermaid
 flowchart BT
     core["Core<br/>domain records, enums, PriorityMatrix,<br/>ServiceCatalog, pipeline ports"]
-    infra["Infrastructure<br/>EF Core/SQLite, import, stubs"]
+    infra["Infrastructure<br/>EF Core/SQLite, import, pipeline, similar-ticket retrieval, routing statistics,<br/>Challenge/ (shared challenge file parsing + result building)"]
     agents["Agents<br/>IChatClient factory, agents, prompts"]
-    web["Web<br/>Blazor UI, HITL"]
+    web["Web<br/>Blazor UI, HITL, Upload (/upload)"]
     batch["Batch<br/>challenge → result"]
     sd["ServiceDefaults<br/>OTel, health, resilience"]
     host["AppHost"]
@@ -58,13 +58,15 @@ flowchart BT
     host -. orchestrates .-> batch
 ```
 
-Core has no references, and all dependencies point inward. Pipeline steps are Core interfaces (`ISimilarTicketRetriever`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriagePipeline`), implemented in Infrastructure (deterministic) or Agents (LLM-backed). `ITriagePipeline` only **analyses** a ticket. Two further Core ports keep the other concerns out of it: `ITicketIngestor` (saves incoming tickets as `New`) and `IReviewService` (persists the analyst's decision, edits and timestamps). The analysis worker is a `BackgroundService` in Web that calls the pipeline, see [ADR-0002](adr/0002-background-analysis-worker.md).
+`Infrastructure/Challenge` (`ChallengeDocument`, `ChallengeResults`) holds the challenge-file logic shared by Batch (path wrapper `Batch/ChallengeFile`) and Web (`Web/Upload/ChallengeUploadService`), see [features/upload-frontend](features/upload-frontend/README.md). Tests: `tests/TicketTriage.Web.Tests` covers the upload service.
+
+Core has no references, and all dependencies point inward. Pipeline steps are Core interfaces (`ITicketSource`, `ISimilarTicketSource`, `ITicketClassifier`, `IRoutingResolver`, `IResolutionDrafter`, `ITriageFailureStore`, `ITriagePipeline`), implemented in Infrastructure (deterministic) or Agents (LLM-backed). `ITriagePipeline` only **analyses** tickets, as a stream (`TriageAsync(IAsyncEnumerable<Ticket>)`, one suggestion per ticket, in order) or for a single ticket. `ITicketSource` supplies the input stream (`DbTicketSource`, no caller yet). Two further Core ports keep the other concerns out of it: `ITicketIngestor` (saves incoming tickets as `New`) and `IReviewService` (persists the analyst's decision, edits and timestamps). The analysis worker is a `BackgroundService` in Web that calls the pipeline, see [ADR-0002](adr/0002-background-analysis-worker.md).
 
 ## 3. Data preparation (once, on startup — FR-01…05)
 
 ```mermaid
 flowchart LR
-    json[/training.json<br/>20k noisy tickets/] --> imp["Import<br/>idempotent (FR-01)"]
+    json[/training file<br/>20k noisy tickets/] --> imp["Import<br/>idempotent (FR-01)"]
     imp --> clean["Clean resolutions<br/>drop templates, 'Problem fixed' (FR-02)"]
     clean --> emb["Embed summary + description<br/>dedupe, cache (FR-03)"]
     clean --> stats["Routing statistics<br/>service→team, (service,team)→assignee (FR-04)"]
@@ -75,7 +77,8 @@ flowchart LR
 | Step | Status |
 |---|---|
 | Import | implemented (`TrainingDataImporter`) |
-| Clean, embed, routing stats, filter | planned |
+| Routing stats (in memory, `RoutingStatisticsProvider`) | implemented |
+| Clean, embed, filter | planned |
 
 The training set's **Priority, Urgency and Impact are random**. They are never used as labels, as few-shot examples or in statistics.
 
@@ -99,7 +102,7 @@ flowchart LR
     s3["3 · Route<br/>team + assignee<br/>from routing statistics"]
     s4["4 · Assess & prioritize<br/>LLM: urgency + impact<br/>code: PriorityMatrix"]
     s5["5 · Draft & validate<br/>resolution + comment (assignee voice),<br/>vocabulary & consistency checks"]
-    out[/TriageSuggestion<br/>+ reasoning + reference tickets/]
+    out[/TriageSuggestion<br/>+ reference ticket keys/]
 
     s1 --> s2 --> s3 --> s4 --> s5 --> out
 
@@ -115,51 +118,68 @@ flowchart LR
 
 | Step | Core port | Decided by | Status |
 |---|---|---|---|
-| 1 Normalize & retrieve | `ISimilarTicketRetriever` | code (embeddings + cosine) | stub |
-| 2 Classify | `ITicketClassifier` | LLM, validated against `ServiceCatalog` / enums | stub |
-| 3 Route | `IRoutingResolver` | code (majority vote), LLM never invents names | stub |
-| 4 Assess & prioritize | `ITicketClassifier` + `PriorityMatrix` | LLM (urgency, impact) → **code** (priority) | matrix implemented |
-| 5 Draft & validate | `IResolutionDrafter` + validator | LLM draft from cleaned templates → code validation (FR-33) | stub |
-| Orchestration | `ITriagePipeline` (analysis only) | code | stub |
-| Ingest | `ITicketIngestor` | code, saves tickets as `New` | planned |
-| Analysis worker | `BackgroundService` in Web | code, claims `New` tickets and calls the pipeline (ADR-0002) | planned |
+| 1 Normalize & retrieve | `TicketNormalizer` (implemented) + `ISimilarTicketSource` | code (TF-IDF + cosine kNN over `Description`, in memory) | normalize and `DbSimilarTicketSource` implemented ([features/similar-ticket-retrieval](features/similar-ticket-retrieval/README.md)); no embeddings / BM25 |
+| 2 Classify | `ITicketClassifier` | LLM, validated against the service catalog (`IServiceCatalogProvider`) / enums | implemented (`LlmTicketClassifier`); `ServiceCatalog` holds the 20 real names |
+| 3 Route | `IRoutingResolver` | code (majority vote over `RoutingStatistics`, ties alphabetical), LLM never invents names | implemented (`StatisticsRoutingResolver`; statistics built once per process, no schema change) |
+| 4 Assess & prioritize | `ITicketClassifier` + `PriorityMatrix` | LLM (urgency, impact) → **code** (priority) | implemented (urgency + impact come from the same LLM call as step 2; matrix in Core) |
+| 5 Draft & validate | `IResolutionDrafter` + `SuggestionValidator` | LLM draft from cleaned templates → code validation (FR-33) | drafter implemented (`LlmResolutionDrafter`, prompt `drafter-v2`): the Core port `DraftAsync(ticket, classification, routing, similar)` returns `ResolutionDraft(Status, Comment)`; the pipeline sets `TriageSuggestion.ResolutionStatus` and `TriageResult.Resolution` writes it in the lowercase export vocabulary (`done`, `cancelled`, `clarification`, `cannot reproduce`). An unknown model status throws, so retry and fallback apply; the fallback status is the majority of the similar tickets' statuses (ties: summed score, then enum order), else `done`. Validator checks all 7 fields (FR-33): enums, canonical `ServiceCatalog` names, team and assignee equal to the routing statistics for the first service (none for an unknown service), priority = matrix, resolution status, comment. The fallback takes its routing from the same statistics, so it is always consistent |
+| Orchestration | `ITriagePipeline` (analysis only, stream) | code: sequential, timeout, retry, failure log, fallback (FR-34…36) | implemented |
+| Input stream | `ITicketSource` | code | `DbTicketSource` implemented (streams `New` tickets from SQLite), registered in DI, no caller yet |
+| Failure log | `ITriageFailureStore` (`EfTriageFailureStore`) | code, `Ticket.Retries` + table `TriageFailure` | implemented |
+| Ingest | `ITicketIngestor` | code, saves tickets as `New`; also required for Batch (challenge tickets, §5.4) | planned |
+| Analysis worker | `BackgroundService` in Web | code, claims `New` tickets from the ingest path (lease `ClaimedAt`) and calls the pipeline (ADR-0002, §5); also required for Batch (§5.4) | planned |
 | Review persistence | `IReviewService` | code, decision + per-field edits + timestamps | planned |
+| Batch export from DB | `BatchRunner` | code, ingests challenge tickets and writes `result.json` from stored suggestions (§5.4) | planned; today direct pipeline call (transitional) |
 
 ### 4.1 Pipeline rules
 
+> There are no confidence values, no `LowConfidence` flag and no per-decision reasoning (decision: not needed, FR-18 dropped). The suggestion only carries the keys of the reference tickets (FR-17).
+>
+> **Seven output fields.** The scored fields are work type, affected service, service team(s), assignee, priority, resolution status and resolution comment (requirements §2). Validation (FR-33) has to cover all seven. **Resolution status is implemented**: the drafter returns it together with the comment (voice = the routed assignee, neutral when none), the pipeline stores it in `TriageSuggestion.ResolutionStatus`, `TriageResult.Resolution` emits it. The training statuses carry no signal (measured, [score-completeness](features/score-completeness/README.md)), so the prompt makes the model decide from the ticket's own text and never from similar tickets' statuses. The `SuggestionValidator` checks all seven fields (slice 4), see the validation table in the [triage-pipeline README](features/triage-pipeline/README.md).
+
 | Topic | Rule |
 |---|---|
-| **No self-retrieval** | `ISimilarTicketRetriever` takes the id of the ticket under analysis and excludes it from the kNN result. This matters when a challenge ticket also appears in `training.json`, and for tickets that are re-analysed. |
-| **Confidence** | If the pipeline cannot complete a ticket with high confidence (empty or garbage text, unclear classification, no usable references), the suggestion is flagged `LowConfidence` with a reason. The UI shows the flag and the reason to the analyst, who decides. The LLM is not skipped silently and nothing is auto-routed. |
+| **No self-retrieval** | `ISimilarTicketSource.FindSimilarAsync(ticket, top, ct)` receives the ticket under analysis and excludes it from the kNN result. This matters when a challenge ticket also appears in the training file, and for tickets that are re-analysed. |
 | **Language** | The language is detected once per ticket. The drafted resolution and comment use that language, and the validator checks against it. Service, team and enum names stay in the fixed English vocabulary of the catalog. |
 | **Multiple services** | Open: it is not yet confirmed that a ticket can have more than one service (requirements §7 no. 5). The field is a list in the export, so the model keeps a list. Urgency, impact and priority are assessed once per ticket. Until the data is checked, routing uses the first service the classifier lists, and all listed services are shown as affected. If several services do occur and map to different teams, a proper rule is needed. The rule "service with the highest ticket priority" was considered and dropped for now, because it needs urgency and impact per service. |
-| **Cold start and ties** | With few or no similar tickets, or a tie in the majority vote, the suggestion is flagged `LowConfidence` and the analyst chooses. No further tie-break logic for now. |
-| **Text length** | Ticket text is limited by the database column (`varchar(max)`). No truncation or chunking in the pipeline. |
+| **Cold start and ties** | With few or no similar tickets, or a tie in the majority vote, the suggestion is still produced (fallback values where nothing better exists) and the analyst decides. No flag and no further tie-break logic for now. |
+| **Text length** | The importer truncates imported text (summary 250, description 1000, assignee 50, resolution 500, comment 500 characters). The retrieval tokenizer caps text at 20 000 characters. No truncation or chunking in the pipeline. |
 | **Reference tickets** | Similar tickets and their resolutions come from our own cleaned and controlled training data (FR-02, FR-05), so they are trusted. Only the incoming ticket text is treated as untrusted input. |
 
 ## 5. Ticket lifecycle and human in the loop
 
 Suggestions are **pre-computed** by a background worker. Opening a ticket only reads the stored result ([ADR-0002](adr/0002-background-analysis-worker.md)).
 
+> **Status: planned.** `ITicketIngestor`, the analysis worker and `IReviewService` do not exist in code yet. What exists: the pipeline (§4), `DbTicketSource` (streams `New` tickets, no caller), the `Status` lookup and the `*Changed` columns on `Ticket`. This section describes the intended behaviour on top of the **DB status model**.
+
 ### 5.1 Ticket states
+
+The states are the rows of the `Status` lookup table (seeded in `TriageDbContext`): `New`, `Reviewing`, `Reviewed`, `HumanRejected`, `HumanApproved`. There is no `Analysing` and no `Failed` status; "in analysis" and "failed" are derived, see below.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> New: ingest (ITicketIngestor)
-    New --> Analysing: worker claims ticket
-    Analysing --> Suggested: suggestion saved
-    Analysing --> New: call incomplete or timeout, attempts left
-    Analysing --> New: stale claim swept (ClaimedAt too old)
-    Analysing --> Failed: attempt limit reached
-    Failed --> New: manual re-queue
-    Suggested --> New: source ticket edited, no decision yet
-    Suggested --> Approved: analyst approves (with or without edits)
-    Suggested --> Rejected: analyst rejects (reason)
+    [*] --> New: ingest (planned) / training import without resolution
+    [*] --> HumanApproved: training import with resolution
+    New --> New: attempt failed, Retries < RetryCount
+    New --> Reviewing: worker stores the suggestion (AI values in the *Changed columns)
+    Reviewing --> New: source ticket edited, no decision yet
+    Reviewing --> Reviewed: analyst saved edits (proposal)
+    Reviewing --> HumanApproved: analyst approves
+    Reviewing --> HumanRejected: analyst rejects (reason)
+    Reviewed --> HumanApproved: analyst approves
+    Reviewed --> HumanRejected: analyst rejects (reason)
 ```
 
-`New`, `Analysing` and `Failed` show in the ticket list as "analysing" / "failed" (FR-20). A `Failed` ticket still shows deterministic fallback values where there are any (FR-34).
+| Status | Meaning | Implementation |
+|---|---|---|
+| `New` | Ticket has no stored suggestion yet. Input of the worker and of `DbTicketSource`. While a worker holds it, a planned nullable `ClaimedAt` lease marks it as "in analysis". | import and source implemented, claim planned |
+| `Reviewing` | A suggestion is stored (also a fallback suggestion, see §5.2.2) and waits for the analyst. | planned |
+| `Reviewed` | **Semantics still open.** Proposal: the analyst saved edits but has not decided yet. If the team does not need it, the state can stay unused. | open |
+| `HumanApproved` / `HumanRejected` | Final decision (FR-22). Approved with or without edits, told apart by the per-field edits. Imported training tickets that have a resolution are `HumanApproved`. | decisions planned, import implemented |
 
-`Approved` and `Rejected` are final. There is no `Edited` state: the analyst either approves or rejects, and any changes made before approving are stored as per-field edits on the decision (FR-25), so "approved unchanged" and "approved with edits" are told apart by those edits. Re-opening or un-rejecting a decided ticket, and re-analysis after a decision, are out of scope (see §7).
+The ticket list (FR-20) shows `New` as "analysing" (or "queued"), and a `New` ticket whose `Retries` reached `Triage:RetryCount` as "failed". A failed ticket still shows the deterministic fallback values (FR-34). `HumanApproved` and `HumanRejected` are final. Re-opening, un-rejecting and re-analysis after a decision are out of scope (§7).
+
+> **Known risk.** Imported training tickets without a resolution also have status `New`. Once a worker reads `New` tickets through `DbTicketSource`, it would triage historical data. A source/status filter is needed before the worker is wired. Solution (planned, schema change): a source/batch marker on `Ticket` separates ingested tickets (including the challenge tickets, §5.4) from imported training history, and the worker claims only tickets from the ingest path. Exact shape open; delete `data/triage.db*` after the change.
 
 ### 5.2 Ingest and analysis (worker)
 
@@ -175,42 +195,52 @@ sequenceDiagram
     S->>I: new tickets
     I->>D: save tickets (status New)
     loop timer / startup / manual trigger / queue signal
-        W->>D: claim next New tickets, batch (status Analysing)
+        W->>D: claim next New tickets, batch (ClaimedAt = now)
         D-->>W: tickets
-        W->>P: AnalyzeAsync(ticket)
-        P->>L: embed summary + description
-        L-->>P: vector
-        P->>D: kNN similar tickets, routing statistics
+        W->>P: TriageAsync(ticket)
+        P->>D: similar tickets (TF-IDF), routing statistics
         D-->>P: similar tickets, team / assignee votes
-        P->>L: classify (structured output)
-        L-->>P: work type, services
-        P->>L: assess urgency + impact (structured output)
-        L-->>P: urgency, impact
+        P->>L: classify + assess urgency + impact (structured output)
+        L-->>P: work type, services, urgency, impact
         Note over P: route from statistics, priority = PriorityMatrix
         P->>L: draft resolution + comment
         L-->>P: draft
         Note over P: validate vocabulary, matrix, required fields (FR-33)
         P-->>W: TriageSuggestion
-        W->>D: save suggestion (status Suggested)
+        W->>D: save suggestion (status Reviewing, ClaimedAt cleared)
     end
-    Note over W,D: call incomplete: discard partial result, status New, attempts + 1.<br/>Attempt limit reached: deterministic fallback, status Failed (FR-34)
+    Note over W,D: attempt failed: pipeline retries, Ticket.Retries + 1, TriageFailure row.<br/>Retries exhausted: deterministic fallback suggestion (FR-34)
 ```
 
 ### 5.2.1 Worker rules
 
-These rules close the gaps of the diagram above. All of them apply to the worker. Batch follows the per-ticket rules of §5.4.
+These rules close the gaps of the diagram above. All of them apply to the worker (planned). Challenge tickets go through the same worker, so these rules apply to them too; the export rules of §5.4 come on top.
 
 | Rule | Definition |
 |---|---|
-| **Start gate** | The worker starts claiming only after data preparation (import, embeddings, routing statistics, §3) has completed. A persisted "data ready" marker tells it. Until then ingest still saves tickets as `New`, they wait. Without this gate, kNN would run on a half-imported or half-embedded set. |
-| **Atomic claim** | A claim is one conditional statement, `UPDATE Tickets SET Status='Analysing', ClaimedAt=@now, Attempts=Attempts+1 WHERE Id IN (…) AND Status='New'`, followed by a read of the rows that were changed. Two overlapping ticks or two instances can never claim the same ticket, because SQLite has a single writer. The transaction covers only the claim and is never held across an LLM call. |
-| **Lease and sweep** | `ClaimedAt` is the lease. On startup and on every tick, tickets in `Analysing` with `ClaimedAt` older than the lease (assumption: 5 min, above the per-ticket timeout) are reset to `New`. This recovers tickets after a crash or a restart. |
-| **Per-ticket timeout** | Each ticket runs under its own `CancellationTokenSource` (assumption: 60 s in total, on top of the resilience timeouts per LLM call). A slow ticket is cancelled and handled like any incomplete call. |
+| **Start gate** | The worker starts claiming only after data preparation (import, embeddings, routing statistics, §3) has completed. A persisted "data ready" marker tells it. Until then ingest still saves tickets as `New`, they wait. Without this gate, retrieval would run on a half-imported set. |
+| **Atomic claim** | A claim is one conditional statement, `UPDATE Tickets SET ClaimedAt=@now WHERE Id IN (…) AND StatusId=<New> AND ClaimedAt IS NULL`, followed by a read of the rows that were changed. Two overlapping ticks or two instances can never claim the same ticket, because SQLite has a single writer. The transaction covers only the claim and is never held across an LLM call. |
+| **Lease and sweep** | `ClaimedAt` is the lease. On startup and on every tick, `New` tickets with `ClaimedAt` older than the lease (assumption: 5 min, above the per-ticket timeout) are released (`ClaimedAt = NULL`). This recovers tickets after a crash or a restart. |
+| **Per-ticket timeout** | Done by the pipeline: each attempt runs under `Triage:TicketTimeoutSeconds` (60 s), on top of the resilience timeouts per LLM call. |
 | **Failure isolation** | Tickets of a batch are processed independently. An exception or timeout affects only its own ticket and never the rest of the batch or the worker loop. |
-| **Incomplete call** | If any pipeline step does not complete (LLM error, timeout, cancellation, validation failure), the partial result is **discarded**, not stored. The ticket goes back to `New` so the next load tries it again. There are no partial suggestions. `Attempts` is kept, so a ticket that keeps failing ends as `Failed` at the limit (FR-34) and does not retry forever. |
-| **Suggested is closed to the worker** | The worker only claims `New`. A ticket in `Suggested` is never re-analysed and its suggestion is never overwritten, so it cannot change while an analyst edits it. The `rowVersion` check of §5.3 still protects against two analysts. |
-| **Source edit** | If a ticket is changed in the source (a re-ingest with the same key) and it has no decision yet, its suggestion is dropped and the status goes back to `New`. A decided ticket (`Approved`, `Rejected`) is not changed. Edits made directly in the database are out of scope. |
-| **Ingest = upsert** | `ITicketIngestor` upserts on the Jira key. It never creates a duplicate row. An unchanged re-send is a no-op. |
+| **Incomplete call** | Handled by the pipeline: a failed attempt (LLM error, timeout, validation failure) is retried up to `Triage:RetryCount` and logged (`TriageFailure`, `Ticket.Retries`). There are no partial suggestions. |
+| **Reviewing is closed to the worker** | The worker only claims `New`. A ticket in `Reviewing` or later is never re-analysed and its suggestion is never overwritten, so it cannot change while an analyst edits it. The row-version check of §5.3 still protects against two analysts. |
+| **Source edit** | If a ticket is changed in the source (a re-ingest with the same key) and it has no final decision yet, its suggestion is dropped and the status goes back to `New`. A decided ticket (`HumanApproved`, `HumanRejected`) is not changed. Edits made directly in the database are out of scope. |
+| **Ingest = upsert** | `ITicketIngestor` upserts on the Jira key. It never creates a duplicate row. An unchanged re-send is a no-op. (The DB has no Jira key column yet.) |
+
+### 5.2.2 One retry model (decision)
+
+There is a single retry mechanism: the **pipeline's**. The worker adds no counter of its own.
+
+| | Pipeline (implemented) | Worker (planned) |
+|---|---|---|
+| Counter | `Ticket.Retries`, reset to 0 on success | none (the worker does not count attempts) |
+| Limit | `Triage:RetryCount` | – |
+| On exhaustion | deterministic fallback suggestion is returned | worker stores it like any suggestion (`Reviewing`). The ticket is shown as "failed" because `Retries >= RetryCount` |
+| Failure record | table `TriageFailure` (reason, frames) | – |
+| Timeout | `Triage:TicketTimeoutSeconds` per attempt | lease `ClaimedAt` only guards against crashes |
+
+Consequences: no `Attempts` column and no `Failed` status. A manual re-queue of a failed ticket means resetting `Retries` to 0 and the status to `New` (planned, not designed). Details of the pipeline side: [features/triage-pipeline](features/triage-pipeline/README.md).
 
 ### 5.3 Open and review
 
@@ -227,7 +257,7 @@ sequenceDiagram
     alt suggestion exists
         D-->>W: ticket, suggestion, reference tickets
         Note over W,D: first-opened timestamp saved once
-    else not analysed yet
+    else not analysed yet (status New)
         W->>Q: enqueue with priority (FR-29)
         W-->>A: show "analysing", refresh when done
     end
@@ -240,22 +270,52 @@ sequenceDiagram
     Note over D: basis for acceptance rate, edits per field,<br/>time-to-resolution = ingested → first opened → decided (FR-25)
 ```
 
-If the ticket changed in the meantime (another analyst decided, or the worker re-analysed it), `rowVersion` no longer matches, the write is rejected and the UI reloads.
+If the ticket changed in the meantime (another analyst decided, or the worker re-analysed it), `rowVersion` no longer matches, the write is rejected and the UI reloads. (No row-version column exists yet.)
 
 ### 5.4 Batch (challenge submission)
 
-Batch does not use the worker. It calls `ITriagePipeline` directly for each challenge ticket, runs the FR-33 validation and writes `result.json`. The pipeline code is the same as in 5.2.
+**Target (decided 2026-09-25, planned).** The 20 challenge tickets take the same path as any ticket, so they also appear in the Web UI and a human can review and finalize them there:
+
+```mermaid
+flowchart LR
+    c[/challenge file/] --> B1["Batch: ITicketIngestor<br/>(status New, challenge marker)"]
+    B1 --> D[(SQLite)]
+    D --> W["AnalysisWorker (Web)<br/>ITriagePipeline"]
+    W --> D
+    D --> B2["Batch: export stored suggestions<br/>challenge order, one entry per ticket"]
+    B2 --> r[/result.json/]
+    D --> UI["Web UI: review / finalize"]
+```
+
+- Batch no longer calls `ITriagePipeline` itself. Analysis, retry, timeout, fallback and the FR-33 validation are done by the worker path (§5.2, §5.2.1).
+- `result.json` has the same `TriageResult` shape, one entry per challenge ticket in challenge order, built from the **stored** suggestions.
+- Challenge tickets need a source/batch marker on `Ticket` so they are distinguishable from imported training history and the worker claims only ingested tickets (§5.1 known risk). Schema change: delete `data/triage.db*`.
+- The worker runs in Web. Batch never hosts it (ADR alternative "Worker inside Batch" stays rejected).
+- Needs `ITicketIngestor`, the worker and review persistence, none of which exist yet.
+
+**Open assumptions** (not confirmed, requirements §7 no. 9 to 12):
+
+| Topic | Assumption / options |
+|---|---|
+| Trigger and wait | Batch waits (polls) until all challenge tickets have left `New`, or the export runs on demand from Web. Open |
+| Ticket still `New` or failed | Export the deterministic fallback suggestion, as today (FR-34). Open |
+| What is exported | Recommendation: the AI suggestion by default, with a switch to export the analyst's final values. Open |
+| Single SQLite writer | Batch must not analyse concurrently with the Web worker. Open how this is enforced |
+
+**Second entry point: Web upload (implemented).** `/upload` in Web follows the same ingest -> worker -> export path with `TicketOrigin.Challenge`: the page parses the file, ingests via `ITicketIngestor`, polls `IAnalysisMonitor` while the Web `AnalysisWorker` analyses (30 s cycles, batch of 5, so minutes for 20 tickets), and builds `result.json` from the stored suggestions (pending tickets use the fallback). Output is byte-identical to Batch's (shared `ChallengeDocument.WriteAsync`); caps 10 MB / 500 records. Details, options and limitations: [features/upload-frontend](features/upload-frontend/README.md).
+
+**Current behaviour (transitional, implemented).** `BatchRunner` does not use the worker. It calls `ITriagePipeline` directly for each challenge ticket and writes `result.json`; nothing is persisted on success and the tickets do not show in the UI. It stays until ingest, worker and review persistence exist. Its per-ticket rules:
 
 - **Every ticket is evaluated.** `result.json` always contains one entry per challenge ticket. The status is kept per ticket, not per run. A ticket that fails does not stop the run.
-- **Per-ticket retry, then fallback.** Batch has no worker, so it retries an incomplete ticket itself (same attempt limit and per-ticket timeout as §5.2.1). If it still fails, the deterministic fallback of FR-34 fills the entry and the ticket is reported as failed in the console summary. The file is never partial.
-- **No self-retrieval.** kNN excludes the ticket itself (see §4.1).
+- **Per-ticket retry, then fallback.** Retry, per-ticket timeout and fallback are done by the pipeline itself (`Triage:RetryCount`, `Triage:TicketTimeoutSeconds`, FR-34), so Batch gets one suggestion per ticket from the stream. `BatchRunner` calls the stream, counts fallbacks (blank `DraftComment`) and prints a console summary (tickets, fallback/failed, duration, output path) plus a warning if every ticket fell back. Bad input or an aborted run exits with 1 and writes nothing; the file is written atomically (temp file + move), so it is never partial. Details: [features/batch-runner](features/batch-runner/README.md). With `Triage:StopSystemOnFailure` the run is aborted on the first failure (development only).
+- **No self-retrieval.** kNN excludes the ticket itself (see §4.1). This holds on both paths.
 - **Data ready.** Batch checks the same "data ready" marker as the worker and stops with a clear message if data preparation is not complete.
 
 ## 6. Cross-cutting
 
 | Concern | Approach |
 |---|---|
-| Configuration | `Llm` section (`AzureOpenAI` \| `Ollama`), AppHost parameters → env vars, secrets in user secrets only |
+| Configuration | `Llm` section (`AzureOpenAI` \| `OpenAI` \| `Apertus` \| `Ollama`), AppHost parameters → env vars, secrets in user secrets only. `Triage` section (retry, timeout, stop switch) in appsettings |
 | Observability | OpenTelemetry via ServiceDefaults. LLM calls (`Experimental.Microsoft.Extensions.AI`) show in the dashboard with token usage |
 | Health | `/health`: `sqlite` + `agent-framework` (ready), `/alive` (live) |
 | Reproducibility | temperature 0, fixed model deployment, prompt version logged (FR-32) |
@@ -269,10 +329,11 @@ Decided as out of scope for the hackathon. Recorded so they are not mistaken for
 |---|---|
 | Reopen, un-reject, re-analyse after a decision | Not supported. Decisions are final. |
 | Embedding model change | No model/version key on vectors. A model change means a full re-import. |
-| Rare services, ties in routing | Treated as `LowConfidence`, the analyst decides. No tie-break. |
+| Rare services, ties in routing | The analyst decides. No tie-break, no flag. |
 | Inactive team or assignee | Routing statistics come from history and may name someone who has left. Not checked. |
 | Duplicate tickets | Similar tickets are shown as references. No duplicate detection or linking. |
 | Direct database edits | A ticket edited in the database (not through ingest) does not invalidate its suggestion. |
 | Personal data | No PII redaction, retention or region rules beyond the log hygiene of CLAUDE.md. |
 | Non-determinism | Temperature 0 does not guarantee identical output on Azure OpenAI. Not handled. |
+| Upload page (`/upload`) | No authentication (local / hackathon only). No global pending check, so a second tab can upload while earlier tickets are pending. Keyless records are keyed `#n` under the Challenge origin: a different keyless file overwrites earlier `#1..#n` rows and Locked rows export a stale suggestion (the page warns). No per-field length caps on ticket text. See [features/upload-frontend](features/upload-frontend/README.md). |
 | UI and review details | Merge of concurrent edits, first-opened timing bias, circuit reconnect and analyst identity are not designed yet. |

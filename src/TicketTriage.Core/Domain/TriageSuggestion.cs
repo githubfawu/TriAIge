@@ -40,6 +40,7 @@ public sealed record TriageSuggestion
     [JsonPropertyName("Similar Tickets")]
     public IReadOnlyList<string> SimilarTicketKeys { get; init; } = [];
 
-    [JsonPropertyName("Confidence")]
-    public double? Confidence { get; init; }
+    /// <summary>The validator rejects blank comments on every success path, so a blank one marks a pipeline fallback.</summary>
+    [JsonIgnore]
+    public bool IsFallback => string.IsNullOrWhiteSpace(DraftComment);
 }

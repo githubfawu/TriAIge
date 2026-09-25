@@ -1,3 +1,5 @@
+using TicketTriage.Core.Domain;
+
 namespace TicketTriage.Infrastructure.Persistence;
 
 /// <summary>
@@ -60,6 +62,25 @@ public sealed class TicketEntity
     public DateTime? ResolutionDate { get; set; }
 
     public DateTime? ResolutionDateChanged { get; set; }
+
+    public int Retries { get; set; }
+
+    public TicketOrigin Origin { get; set; }
+
+    /// <summary>Stable key within <see cref="Origin"/> for ingested tickets; null for training tickets.</summary>
+    public string? SourceKey { get; set; }
+
+    /// <summary>SHA-256 (hex) of the received payload, to detect changed re-ingests.</summary>
+    public string? SourceHash { get; set; }
+
+    public string? SourcePayload { get; set; }
+
+    public DateTime? IngestedAt { get; set; }
+
+    /// <summary>Analysis lease (UTC); non-null while a worker owns the ticket.</summary>
+    public DateTime? ClaimedAt { get; set; }
+
+    public long Version { get; set; }
 
     public List<CommentEntity> Comments { get; set; } = [];
 }

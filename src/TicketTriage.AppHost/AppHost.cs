@@ -3,6 +3,10 @@ var builder = DistributedApplication.CreateBuilder(args);
 // data/ at the repository root holds the SQLite file plus the (gitignored) training / challenge JSON.
 var dataDirectory = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
 
+// File names inside data/ come from Data:TrainingFile / Data:ChallengeFile (appsettings.json), so a new challenge export needs only a config change.
+var trainingFile = RequirePlainFileName("Data:TrainingFile", builder.Configuration["Data:TrainingFile"] ?? "jira_first_20000_requested_fields_synthetic.json");
+var challengeFile = RequirePlainFileName("Data:ChallengeFile", builder.Configuration["Data:ChallengeFile"] ?? "jira_hackathon_blind_eval_challenge_20260923083915-1141.json");
+
 var sqlite = builder.AddSqlite("triage-db", dataDirectory, "triage.db");
 
 // LLM configuration. Values come from AppHost user-secrets ("Parameters:<name>"), never from code or appsettings.
@@ -20,26 +24,32 @@ var llm = new LlmParameters(
     OllamaEndpoint: AddOptionalParameter("ollama-endpoint", fallback: "http://localhost:11434"),
     OllamaModel: AddOptionalParameter("ollama-model", fallback: "qwen2.5:1.5b"));
 
-builder.AddProject<Projects.TicketTriage_Web>("web")
+var web = builder.AddProject<Projects.TicketTriage_Web>("web")
     .WithReference(sqlite)
     .WaitFor(sqlite)
-    .WithEnvironment("TrainingData__Path", Path.Combine(dataDirectory, "training.json"))
+    .WithEnvironment("TrainingData__Path", Path.Combine(dataDirectory, trainingFile))
     .WithLlmConfiguration(llm)
     .WithExternalHttpEndpoints()
     .WithHttpHealthCheck("/health");
 
-// Started manually from the dashboard; writes data/result.json.
+// Started manually from the dashboard (explicit start; WaitFor(web) then waits for Web to be healthy, i.e. the analysis worker
+// is up); ingests the challenge tickets and exports data/result.json from the worker's suggestions. No LLM configuration needed.
 builder.AddProject<Projects.TicketTriage_Batch>("batch")
     .WithReference(sqlite)
     .WaitFor(sqlite)
+    .WaitFor(web)
     .WithArgs(
-        "--input", Path.Combine(dataDirectory, "challenge.json"),
+        "--input", Path.Combine(dataDirectory, challengeFile),
         "--output", Path.Combine(dataDirectory, "result.json"))
-    .WithEnvironment("TrainingData__Path", Path.Combine(dataDirectory, "training.json"))
-    .WithLlmConfiguration(llm)
     .WithExplicitStart();
 
 builder.Build().Run();
+
+// Names are joined onto data/; anything with a directory part could point outside it.
+static string RequirePlainFileName(string key, string value) =>
+    !string.IsNullOrWhiteSpace(value) && Path.GetFileName(value) == value
+        ? value
+        : throw new InvalidOperationException($"Configuration value {key} must be a plain file name inside the data directory (no path separators).");
 
 IResourceBuilder<ParameterResource> AddOptionalParameter(string name, string fallback = "", bool secret = false) =>
     builder.AddParameter(name, () => builder.Configuration[$"Parameters:{name}"] ?? fallback, secret: secret);

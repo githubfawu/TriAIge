@@ -3,7 +3,7 @@
   "profiles": {
     "TicketTriage.Batch": {
       "commandName": "Project",
-      "commandLineArgs": "--input ../../data/challenge.json --output ../../data/result.json",
+      "commandLineArgs": "--input ../../data/jira_hackathon_blind_eval_challenge_20260923083915-1141.json --output ../../data/result.json",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       }

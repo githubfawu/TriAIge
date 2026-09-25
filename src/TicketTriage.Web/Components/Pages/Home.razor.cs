@@ -1,14 +1,15 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using MudBlazor;
+using TicketTriage.Core.Abstractions;
+using TicketTriage.Core.Domain;
 using TicketTriage.Web.Triage;
 
 namespace TicketTriage.Web.Components.Pages;
 
-/// <summary>Code-behind for <c>/</c> (FR22): state counters (linking to <c>/tickets?state=…</c>), the persistent
-/// Approval rate and session-only metrics (<see cref="SessionMetrics"/>), plus the pre-existing health block.
-/// <see cref="OnTicketChanged"/> only reloads the board/metrics - the health check (which probes the LLM) only
-/// runs on load or an explicit Refresh (Technical Constraints), so live ticket updates never spend extra tokens.</summary>
+/// <summary>Code-behind for <c>/</c>: state counters (linking to <c>/tickets?state=…</c>), review metrics from
+/// <see cref="ITriageMetricsService"/> (FR25) and the pre-existing health block. The health check (which probes the
+/// LLM) only runs on load or an explicit Refresh, so this page never spends extra tokens on its own.</summary>
 public partial class Home : IDisposable
 {
     private static readonly string[] DisplayedHealthChecks = ["sqlite", "agent-framework"];
@@ -16,8 +17,7 @@ public partial class Home : IDisposable
     private readonly CancellationTokenSource _cts = new();
 
     private IReadOnlyList<TicketBoardRow> _rows = [];
-    private DecisionTotals _decisionTotals = new(0, 0);
-    private SessionMetricsSnapshot _metrics = SessionMetricsSnapshot.Empty;
+    private TriageMetrics _metrics = new(0, 0, 0, 0, 0, null, new Dictionary<SuggestionField, int>(), null, null);
     private HealthReport? _report;
     private DateTimeOffset _checkedAt;
     private bool _loadingHealth;
@@ -26,10 +26,10 @@ public partial class Home : IDisposable
     private HealthCheckService HealthChecks { get; set; } = null!;
 
     [Inject]
-    private ITriageBoardQuery BoardQuery { get; set; } = null!;
+    private ITicketBoardQuery BoardQuery { get; set; } = null!;
 
     [Inject]
-    private TriageSessionStore Store { get; set; } = null!;
+    private ITriageMetricsService MetricsService { get; set; } = null!;
 
     protected override async Task OnInitializedAsync()
     {
@@ -37,22 +37,10 @@ public partial class Home : IDisposable
         await RefreshHealthAsync();
     }
 
-    protected override void OnAfterRender(bool firstRender)
-    {
-        if (firstRender)
-        {
-            Store.TicketChanged += OnTicketChanged;
-        }
-    }
-
-    private void OnTicketChanged(int ticketId) => _ = InvokeAsync(LoadDashboardAsync);
-
     private async Task LoadDashboardAsync()
     {
         _rows = await BoardQuery.GetRowsAsync(_cts.Token);
-        _decisionTotals = await BoardQuery.GetDecisionTotalsAsync(_cts.Token);
-        _metrics = SessionMetrics.Compute(Store.Snapshot());
-        StateHasChanged();
+        _metrics = await MetricsService.GetAsync(_cts.Token);
     }
 
     private async Task RefreshAsync()
@@ -91,7 +79,6 @@ public partial class Home : IDisposable
 
     public void Dispose()
     {
-        Store.TicketChanged -= OnTicketChanged;
         _cts.Cancel();
         _cts.Dispose();
     }

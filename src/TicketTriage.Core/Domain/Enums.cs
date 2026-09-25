@@ -2,7 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace TicketTriage.Core.Domain;
 
-// Serialized names match the values in the Jira export (e.g. "Service Request", "No Impact").
+// Serialized names match the Jira export where the enum follows it (e.g. "Service Request").
+// ResolutionStatus uses the export's lowercase vocabulary; Urgency/Impact differ and are mapped by JiraVocabulary.
 
 [JsonConverter(typeof(JsonStringEnumConverter<WorkType>))]
 public enum WorkType
@@ -50,11 +51,16 @@ public enum Priority
 [JsonConverter(typeof(JsonStringEnumConverter<ResolutionStatus>))]
 public enum ResolutionStatus
 {
+    [JsonStringEnumMemberName("done")]
     Done,
+
+    [JsonStringEnumMemberName("cancelled")]
     Cancelled,
+
+    [JsonStringEnumMemberName("clarification")]
     Clarification,
 
-    [JsonStringEnumMemberName("Cannot Reproduce")]
+    [JsonStringEnumMemberName("cannot reproduce")]
     CannotReproduce,
 }
 

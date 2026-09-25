@@ -8,9 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TicketTriage.Agents\TicketTriage.Agents.csproj" />
     <ProjectReference Include="..\TicketTriage.Infrastructure\TicketTriage.Infrastructure.csproj" />
     <ProjectReference Include="..\TicketTriage.ServiceDefaults\TicketTriage.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="TicketTriage.Batch.Tests" />
   </ItemGroup>
 
   <ItemGroup>

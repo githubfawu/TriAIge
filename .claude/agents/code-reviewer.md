@@ -38,7 +38,7 @@ You are a senior .NET engineer reviewing **TicketTriage** (.NET 10, Blazor Serve
 - Query in a loop (N+1), missing `AsNoTracking()` on read-only queries → [SHOULD]
 - Ordering/filtering on `DateTimeOffset`/`decimal` (not translatable on SQLite) → [MUST]
 - Bulk import saving per row / long write transaction → [SHOULD]
-- Hand-edited migration or snapshot → [MUST]
+- Model / seed change without a note to delete `data/triage.db*` (no migrations, `EnsureCreated`) → [MUST]; hand-edited migration or snapshot (if migrations are ever reintroduced) → [MUST]
 
 **Agent Framework / AI**
 - Free-text parsing of model output where structured output (`RunAsync<T>`) fits → [SHOULD]

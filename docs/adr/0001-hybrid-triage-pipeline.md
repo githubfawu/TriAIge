@@ -1,6 +1,6 @@
 # ADR-0001: Five-step hybrid triage pipeline (LLM suggests, code decides)
 
-- **Status:** Proposed. The team confirms or amends it at the hackathon.
+- **Status:** Proposed (implemented in the pipeline: steps 1–5 exist, routing statistics and embeddings are still planned). The team confirms or amends it at the hackathon.
 - **Date:** 2026-09-24
 - **Requirements:** FR-10 to FR-16, FR-31, FR-33 ([requirements.md](../requirements.md))
 
@@ -14,13 +14,13 @@ Triage runs as a fixed sequence of **five steps**. Each field has exactly one ow
 
 | # | Step | LLM does | Code does |
 |---|---|---|---|
-| 1 | **Normalize & retrieve** | — | Normalize fields, flag empty or suspicious values, find top-k similar tickets by embedding cosine similarity |
+| 1 | **Normalize & retrieve** | — | Normalize fields, flag empty or suspicious values, find top-k similar tickets by cosine similarity (today TF-IDF over the description, embeddings planned) |
 | 2 | **Classify** | Work type + affected service (structured output), using similar tickets as context and the given values only as a hint | Validate against `WorkType` / `ServiceCatalog`, fall back to the majority of similar tickets |
 | 3 | **Route** | — | Team and assignee from routing statistics (majority vote). Names are never generated |
 | 4 | **Assess & prioritize** | Urgency + impact, aware of the critical-service list | `Priority = PriorityMatrix.Resolve(urgency, impact)` |
-| 5 | **Draft & validate** | Resolution status + comment in the assignee's voice, based on cleaned templates | Check vocabulary, matrix consistency and required fields before output |
+| 5 | **Draft & validate** | Resolution status + comment in the assignee's voice, based on cleaned templates | Check all 7 output fields (vocabulary, matrix consistency, required fields) before output (FR-33; resolution status not implemented yet) |
 
-Every step records its reasoning and reference tickets (FR-17). Web and Batch call the same `ITriagePipeline` (FR-31). A human reviews every suggestion in the Web UI.
+The suggestion carries the reference tickets (FR-17); there is no per-decision reasoning and no confidence value. Web and Batch call the same `ITriagePipeline` (FR-31). A human reviews every suggestion in the Web UI.
 
 ## Consequences
 

@@ -4,12 +4,6 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Tickets</MudText>
 
-@if (Progress is { Total: > 0 } progress)
-{
-    <MudText Typo="Typo.body2" Class="mb-1">@progress.Analysed of @progress.Total analysed</MudText>
-    <MudProgressLinear Color="Color.Primary" Value="@(100.0 * progress.Analysed / progress.Total)" Class="mb-4" />
-}
-
 <MudChipSet T="TicketDisplayState?" SelectedValue="_filter" SelectedValueChanged="SetFilter"
             SelectionMode="SelectionMode.SingleSelection" Class="mb-4">
     <MudChip Value="@((TicketDisplayState?)null)">All (@_rows.Count)</MudChip>
@@ -57,7 +51,7 @@
                         <MudButton Size="Size.Small"
                                    Variant="Variant.Outlined"
                                    Color="Color.Error"
-                                   OnClick="@(() => RequeueAsync(context.Item.Id))">
+                                   OnClick="@(() => RequeueAsync(context.Item))">
                             Re-queue
                         </MudButton>
                     </span>

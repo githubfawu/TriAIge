@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using TicketTriage.Core.Domain;
+using TicketTriage.Core.Abstractions;
 using TicketTriage.Web.Components.Pages;
 using TicketTriage.Web.Tests.Support;
 using TicketTriage.Web.Triage;
@@ -10,42 +9,15 @@ namespace TicketTriage.Web.Tests;
 
 public sealed class TicketsPageTests : TriageBunitContext
 {
-    private static Ticket MakeTicket(string key) => new() { Key = key, Summary = $"Summary for {key}" };
-
-    [Fact]
-    public async Task Row_TransitionsQueuedToAnalysingToPending_WithoutReload_PerFR14()
-    {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeBoardQuery();
-        Services.AddSingleton(store);
-        Services.AddSingleton<ITriageBoardQuery>(boardQuery);
-
-        store.Register(1, "TT-1", MakeTicket("TT-1"), uploadId: 1);
-        boardQuery.Rows = [new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Queued, null)];
-
-        var cut = Render<Tickets>();
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Queued"));
-
-        boardQuery.Rows = [new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Analysing, null)];
-        await store.DequeueAsync(Xunit.TestContext.Current.CancellationToken);
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Analysing"));
-
-        var suggestion = new TriageSuggestion { TicketKey = "TT-1", WorkType = WorkType.Incident, Urgency = Urgency.Medium, Impact = Impact.Moderate };
-        boardQuery.Rows = [new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", "Incident", "—", "Medium", TicketDisplayState.Pending, null)];
-        store.CompleteAnalysis(1, suggestion, []);
-        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Pending"));
-    }
-
     [Fact]
     public void FailedRow_ShowsRequeueButton_PerAC11()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeBoardQuery
+        var board = new FakeTicketBoardQuery
         {
-            Rows = [new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Failed, "InvalidOperationException")],
+            Rows = [new TicketBoardRow(1, 1, "DB-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Failed, "InvalidOperationException")],
         };
-        Services.AddSingleton(store);
-        Services.AddSingleton<ITriageBoardQuery>(boardQuery);
+        Services.AddSingleton<ITicketBoardQuery>(board);
+        Services.AddSingleton<IReviewService>(new FakeReviewService());
 
         var cut = Render<Tickets>();
 
@@ -53,17 +25,31 @@ public sealed class TicketsPageTests : TriageBunitContext
     }
 
     [Fact]
-    public void Rows_NeverIncludeTrainingTickets_PerFR13()
+    public void RequeueButton_CallsReviewServiceWithRowVersion_PerAC11()
     {
-        // TriageBoardQuery itself never returns Finished-status (training) rows (see TriageBoardQueryTests);
-        // this asserts the page renders exactly what the query returns, nothing more.
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeBoardQuery
+        var board = new FakeTicketBoardQuery
         {
-            Rows = [new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Pending, null)],
+            Rows = [new TicketBoardRow(7, 3, "DB-7", "Summary", "Incident", null, "—", null, TicketDisplayState.Failed, "boom")],
         };
-        Services.AddSingleton(store);
-        Services.AddSingleton<ITriageBoardQuery>(boardQuery);
+        var reviewService = new FakeReviewService();
+        Services.AddSingleton<ITicketBoardQuery>(board);
+        Services.AddSingleton<IReviewService>(reviewService);
+
+        var cut = Render<Tickets>();
+        cut.Find("button.mud-button-outlined").Click();
+
+        reviewService.RequeueCalls.Should().ContainSingle().Which.Should().Be(7);
+    }
+
+    [Fact]
+    public void Rows_OnlyShowWhatTheQueryReturns_PerFR13()
+    {
+        var board = new FakeTicketBoardQuery
+        {
+            Rows = [new TicketBoardRow(1, 1, "DB-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Pending, null)],
+        };
+        Services.AddSingleton<ITicketBoardQuery>(board);
+        Services.AddSingleton<IReviewService>(new FakeReviewService());
 
         var cut = Render<Tickets>();
 
@@ -74,17 +60,16 @@ public sealed class TicketsPageTests : TriageBunitContext
     [Fact]
     public void SupplyStateFromQuery_PreselectsFilterChip_PerAC13()
     {
-        var store = new TriageSessionStore(NullLogger<TriageSessionStore>.Instance);
-        var boardQuery = new FakeBoardQuery
+        var board = new FakeTicketBoardQuery
         {
             Rows =
             [
-                new TicketBoardRow(1, "TT-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Failed, "boom"),
-                new TicketBoardRow(2, "TT-2", "Summary for TT-2", "Incident", null, "—", null, TicketDisplayState.Pending, null),
+                new TicketBoardRow(1, 1, "DB-1", "Summary for TT-1", "Incident", null, "—", null, TicketDisplayState.Failed, "boom"),
+                new TicketBoardRow(2, 1, "DB-2", "Summary for TT-2", "Incident", null, "—", null, TicketDisplayState.Pending, null),
             ],
         };
-        Services.AddSingleton(store);
-        Services.AddSingleton<ITriageBoardQuery>(boardQuery);
+        Services.AddSingleton<ITicketBoardQuery>(board);
+        Services.AddSingleton<IReviewService>(new FakeReviewService());
 
         // [SupplyParameterFromQuery] parameters are only supplied via the (fake) NavigationManager, not
         // Render(p => p.Add(...)) - bunit throws with this exact guidance if you try the latter.
@@ -93,24 +78,7 @@ public sealed class TicketsPageTests : TriageBunitContext
 
         var cut = Render<Tickets>();
 
-        cut.Markup.Should().Contain("TT-1");
-        cut.Markup.Should().NotContain("TT-2");
-    }
-
-    private sealed class FakeBoardQuery : ITriageBoardQuery
-    {
-        public IReadOnlyList<TicketBoardRow> Rows { get; set; } = [];
-
-        public Task<IReadOnlyList<TicketBoardRow>> GetRowsAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(Rows);
-
-        public Task<TicketReviewData?> GetReviewAsync(int id, CancellationToken cancellationToken) =>
-            Task.FromResult<TicketReviewData?>(null);
-
-        public Task<int?> GetNextPendingIdAsync(int excludeId, CancellationToken cancellationToken) =>
-            Task.FromResult<int?>(null);
-
-        public Task<DecisionTotals> GetDecisionTotalsAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(new DecisionTotals(0, 0));
+        cut.Markup.Should().Contain("DB-1");
+        cut.Markup.Should().NotContain("DB-2");
     }
 }

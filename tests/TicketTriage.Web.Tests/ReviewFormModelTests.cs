@@ -7,14 +7,14 @@ public sealed class ReviewFormModelTests
 {
     private static ReviewFormSnapshot Snapshot(
         WorkType workType = WorkType.Incident,
-        string? affectedService = "Outlook & Email",
+        IReadOnlyList<string>? affectedServices = null,
         string? serviceTeam = "Service Desk",
         string? assignee = "Dana Keller",
         Urgency urgency = Urgency.High,
         Impact impact = Impact.Major,
         ResolutionStatus? resolution = null,
         string? comment = null) =>
-        new(workType, affectedService, serviceTeam, assignee, urgency, impact, resolution, comment);
+        new(workType, affectedServices ?? ["Outlook & Email"], serviceTeam, assignee, urgency, impact, resolution, comment);
 
     [Fact]
     public void Priority_HighUrgencyMajorImpact_IsHighest_PerAC6()
@@ -43,6 +43,7 @@ public sealed class ReviewFormModelTests
 
         form.HasChanges.Should().BeFalse();
         form.EditedFields().Should().BeEmpty();
+        form.ToEdits().Should().BeNull();
     }
 
     [Fact]
@@ -54,7 +55,8 @@ public sealed class ReviewFormModelTests
         };
 
         form.HasChanges.Should().BeTrue();
-        form.EditedFields().Should().ContainSingle().Which.Should().Be(ReviewField.Assignee);
+        form.EditedFields().Should().ContainSingle().Which.Should().Be(SuggestionField.Assignee);
+        form.ToEdits().Should().BeEquivalentTo(new ReviewEdits { Assignee = "Someone Else" });
     }
 
     [Fact]
@@ -67,7 +69,18 @@ public sealed class ReviewFormModelTests
             Comment = "Draft resolution text",
         };
 
-        form.EditedFields().Should().BeEquivalentTo([ReviewField.Urgency, ReviewField.Impact, ReviewField.Comment]);
+        form.EditedFields().Should().BeEquivalentTo([SuggestionField.Urgency, SuggestionField.Impact, SuggestionField.DraftComment]);
+    }
+
+    [Fact]
+    public void EditedFields_AffectedServicesEdited_IsOrderInsensitive()
+    {
+        var form = new ReviewFormModel(Snapshot(affectedServices: ["Outlook & Email", "Trading Platform"]))
+        {
+            AffectedServices = ["Trading Platform", "Outlook & Email"],
+        };
+
+        form.HasChanges.Should().BeFalse();
     }
 
     [Fact]
@@ -88,39 +101,19 @@ public sealed class ReviewFormModelTests
     }
 
     [Fact]
-    public void BuildBaseline_NoSuggestionForField_FallsBackToOriginal()
+    public void ToEdits_OnlyIncludesChangedFields()
     {
-        var inputs = new ReviewFieldInputs(
-            WorkType.Incident, Urgency.Medium, Impact.Moderate,
-            ChangedAffectedService: null, OriginalAffectedService: "Trading Platform",
-            ChangedServiceTeam: null, OriginalServiceTeam: "Trading Support",
-            ChangedAssignee: null, OriginalAssignee: "Original Assignee",
-            ChangedResolution: null, OriginalResolution: ResolutionStatus.Done);
+        var form = new ReviewFormModel(Snapshot(urgency: Urgency.Low, impact: Impact.Minor))
+        {
+            Urgency = Urgency.Critical,
+        };
 
-        var baseline = ReviewFormModel.BuildBaseline(inputs, draftComment: null);
+        var edits = form.ToEdits();
 
-        baseline.AffectedService.Should().Be("Trading Platform");
-        baseline.ServiceTeam.Should().Be("Trading Support");
-        baseline.Assignee.Should().Be("Original Assignee");
-        baseline.Resolution.Should().Be(ResolutionStatus.Done);
-    }
-
-    [Fact]
-    public void BuildBaseline_SuggestionPresent_PrefersSuggestionOverOriginal()
-    {
-        var inputs = new ReviewFieldInputs(
-            WorkType.ServiceRequest, Urgency.High, Impact.Significant,
-            ChangedAffectedService: "Outlook & Email", OriginalAffectedService: "Trading Platform",
-            ChangedServiceTeam: "Service Desk", OriginalServiceTeam: "Trading Support",
-            ChangedAssignee: "Dana Keller", OriginalAssignee: "Original Assignee",
-            ChangedResolution: ResolutionStatus.Clarification, OriginalResolution: ResolutionStatus.Done);
-
-        var baseline = ReviewFormModel.BuildBaseline(inputs, draftComment: "Draft");
-
-        baseline.AffectedService.Should().Be("Outlook & Email");
-        baseline.ServiceTeam.Should().Be("Service Desk");
-        baseline.Assignee.Should().Be("Dana Keller");
-        baseline.Resolution.Should().Be(ResolutionStatus.Clarification);
-        baseline.Comment.Should().Be("Draft");
+        edits.Should().NotBeNull();
+        edits!.HasAny.Should().BeTrue();
+        edits.Urgency.Should().Be(Urgency.Critical);
+        edits.Impact.Should().BeNull();
+        edits.Assignee.Should().BeNull();
     }
 }

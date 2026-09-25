@@ -6,8 +6,12 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using TicketTriage.Agents.Classification;
+using TicketTriage.Agents.Drafting;
 using TicketTriage.Agents.Health;
 using TicketTriage.Agents.Llm;
+using TicketTriage.Agents.Services;
+using TicketTriage.Core.Abstractions;
 
 namespace TicketTriage.Agents;
 
@@ -33,6 +37,11 @@ public static class AgentsServiceCollectionExtensions
                 name: TriageAgent.Name,
                 loggerFactory: sp.GetService<ILoggerFactory>(),
                 services: sp));
+
+        // Registered after AddTriageInfrastructure, so these replace its TryAdd* stubs (last registration wins).
+        services.TryAddSingleton<IServiceCatalogProvider, CoreServiceCatalogProvider>();
+        services.AddScoped<ITicketClassifier, LlmTicketClassifier>();
+        services.AddScoped<IResolutionDrafter, LlmResolutionDrafter>();
 
         // Singleton so the probe cache is shared across health-check runs.
         services.AddSingleton<AgentFrameworkHealthCheck>();

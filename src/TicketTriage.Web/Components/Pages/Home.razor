@@ -33,38 +33,38 @@
     <MudItem xs="12" sm="6" md="3">
         <MudCard Outlined>
             <MudCardContent>
-                <MudText Typo="Typo.h5">@FormatRate(_decisionTotals.ApprovalRate)</MudText>
-                <MudText Typo="Typo.body2">Approval rate (@_decisionTotals.Approved approved / @_decisionTotals.Rejected rejected)</MudText>
-            </MudCardContent>
-        </MudCard>
-    </MudItem>
-    <MudItem xs="12" sm="6" md="3">
-        <MudCard Outlined>
-            <MudCardContent>
                 <MudText Typo="Typo.h5">@FormatRate(_metrics.AcceptanceRate)</MudText>
-                <MudText Typo="Typo.body2">Acceptance rate (this session)</MudText>
+                <MudText Typo="Typo.body2">Acceptance rate (approved without edits / decided)</MudText>
             </MudCardContent>
         </MudCard>
     </MudItem>
     <MudItem xs="12" sm="6" md="3">
         <MudCard Outlined>
             <MudCardContent>
-                <MudText Typo="Typo.h5">@FormatDuration(_metrics.AverageUploadToFirstOpen)</MudText>
-                <MudText Typo="Typo.body2">Avg. upload &rarr; first open</MudText>
+                <MudText Typo="Typo.h5">@_metrics.Approved approved / @_metrics.Rejected rejected</MudText>
+                <MudText Typo="Typo.body2">Decisions (@_metrics.Decided of @_metrics.Suggested suggested)</MudText>
             </MudCardContent>
         </MudCard>
     </MudItem>
     <MudItem xs="12" sm="6" md="3">
         <MudCard Outlined>
             <MudCardContent>
-                <MudText Typo="Typo.h5">@FormatDuration(_metrics.AverageFirstOpenToDecision)</MudText>
-                <MudText Typo="Typo.body2">Avg. first open &rarr; decision</MudText>
+                <MudText Typo="Typo.h5">@FormatDuration(_metrics.MedianIngestToFirstOpen)</MudText>
+                <MudText Typo="Typo.body2">Median ingest &rarr; first open</MudText>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" sm="6" md="3">
+        <MudCard Outlined>
+            <MudCardContent>
+                <MudText Typo="Typo.h5">@FormatDuration(_metrics.MedianIngestToDecision)</MudText>
+                <MudText Typo="Typo.body2">Median ingest &rarr; decision</MudText>
             </MudCardContent>
         </MudCard>
     </MudItem>
 </MudGrid>
 
-<MudText Typo="Typo.subtitle1" Class="mb-2">Edits per field (this session, approved tickets)</MudText>
+<MudText Typo="Typo.subtitle1" Class="mb-2">Edits per field (all decided tickets)</MudText>
 <MudStack Row Wrap="Wrap.Wrap" Class="mb-4">
     @foreach (var (field, count) in _metrics.EditsPerField)
     {

@@ -1,5 +1,5 @@
 @page "/review/{Id:int}"
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>Review · TriAIge</PageTitle>
 
@@ -7,15 +7,15 @@
 {
     <MudProgressLinear Indeterminate Color="Color.Primary" />
 }
-else if (_data is null)
+else if (_review is null)
 {
     <MudAlert Severity="Severity.Warning">Ticket #@Id was not found.</MudAlert>
 }
 else
 {
     <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
-        <MudText Typo="Typo.h4">Review ticket #@_data.Id @(_data.IssueKey != "—" ? $"({_data.IssueKey})" : "")</MudText>
-        @if (_data.State is { } state)
+        <MudText Typo="Typo.h4">Review ticket #@Id (@_review.Ticket.Key)</MudText>
+        @if (_state is { } state)
         {
             <TrafficLight State="state" Large="true" />
         }
@@ -25,28 +25,28 @@ else
         <MudItem xs="12" md="6">
             <MudPaper Outlined Class="pa-4">
                 <MudText Typo="Typo.h6" Class="mb-2">Original</MudText>
-                <MudText Typo="Typo.subtitle1" Class="mb-1">@_data.Summary</MudText>
-                @if (_data.Description is { } description)
+                <MudText Typo="Typo.subtitle1" Class="mb-1">@_review.Ticket.Summary</MudText>
+                @if (_review.Ticket.Description is { } description)
                 {
                     <MudText Typo="Typo.body2" Class="mb-2" Style="white-space: pre-wrap;">@description</MudText>
                 }
                 <MudSimpleTable Dense Elevation="0">
                     <tbody>
-                        <tr><td>Work type</td><td>@_data.OriginalWorkType</td></tr>
-                        <tr><td>Affected service</td><td>@(_data.OriginalAffectedService ?? "—")</td></tr>
-                        <tr><td>Service team</td><td>@(_data.OriginalServiceTeam ?? "—")</td></tr>
-                        <tr><td>Assignee</td><td>@(_data.OriginalAssignee ?? "—")</td></tr>
-                        <tr><td>Urgency</td><td>@(_data.OriginalUrgency ?? "—")</td></tr>
-                        <tr><td>Impact</td><td>@(_data.OriginalImpact ?? "—")</td></tr>
-                        <tr><td>Priority</td><td>@(_data.OriginalPriority ?? "—")</td></tr>
-                        <tr><td>Resolution</td><td>@(_data.OriginalResolution ?? "—")</td></tr>
+                        <tr><td>Work type</td><td>@(_review.Ticket.WorkType ?? "—")</td></tr>
+                        <tr><td>Affected service(s)</td><td>@(OriginalAffectedServices ?? "—")</td></tr>
+                        <tr><td>Service team(s)</td><td>@(OriginalServiceTeam ?? "—")</td></tr>
+                        <tr><td>Assignee</td><td>@(_review.Ticket.Assignee ?? "—")</td></tr>
+                        <tr><td>Urgency</td><td>@(_review.Ticket.Urgency ?? "—")</td></tr>
+                        <tr><td>Impact</td><td>@(_review.Ticket.Impact ?? "—")</td></tr>
+                        <tr><td>Priority</td><td>@(_review.Ticket.Priority ?? "—")</td></tr>
+                        <tr><td>Resolution</td><td>@(_review.Ticket.Resolution ?? "—")</td></tr>
                     </tbody>
                 </MudSimpleTable>
 
-                @if (_data.Comments.Count > 0)
+                @if (_review.Ticket.Comments.Count > 0)
                 {
                     <MudText Typo="Typo.subtitle2" Class="mt-3">Comments</MudText>
-                    @foreach (var comment in _data.Comments)
+                    @foreach (var comment in _review.Ticket.Comments)
                     {
                         <MudText Typo="Typo.body2" Class="mb-1" Style="white-space: pre-wrap;">@comment</MudText>
                     }
@@ -55,50 +55,49 @@ else
         </MudItem>
 
         <MudItem xs="12" md="6">
-            @if (_data.IsTrainingTicket)
-            {
-                <MudAlert Severity="Severity.Info">Not part of triage (training data).</MudAlert>
-            }
-            else if (_data.State is TicketDisplayState.Queued or TicketDisplayState.Analysing)
+            @if (_state is TicketDisplayState.Analysing)
             {
                 <MudAlert Severity="Severity.Info" Class="mb-2">Agent is analysing…</MudAlert>
                 <MudProgressLinear Indeterminate Color="Color.Info" />
             }
-            else if (_data.State is TicketDisplayState.Failed)
+            else if (_state is TicketDisplayState.Failed)
             {
-                <MudAlert Severity="Severity.Error" Class="mb-2">Analysis failed: @(_data.FailureReason ?? "unknown reason")</MudAlert>
-                <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="RequeueAsync">Re-queue</MudButton>
+                <MudAlert Severity="Severity.Error" Class="mb-2">Analysis failed: @(_failureReason ?? "unknown reason")</MudAlert>
+                <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="RequeueAsync" Disabled="_busy">Re-queue</MudButton>
             }
-            else if (_data.State is TicketDisplayState.Approved or TicketDisplayState.Rejected)
+            else if (_state is TicketDisplayState.Approved or TicketDisplayState.Rejected)
             {
-                <MudAlert Severity="@(_data.State == TicketDisplayState.Approved ? Severity.Success : Severity.Error)">
-                    This ticket has been @(_data.State == TicketDisplayState.Approved ? "approved" : "rejected") - decisions are final.
-                    @if (_data.State == TicketDisplayState.Rejected && _data.RejectReason is { } rejectReason)
+                <MudAlert Severity="@(_state == TicketDisplayState.Approved ? Severity.Success : Severity.Error)">
+                    This ticket has been @(_state == TicketDisplayState.Approved ? "approved" : "rejected") - decisions are final.
+                    @if (_state == TicketDisplayState.Rejected && _review.Decision?.RejectReason is { } rejectReason)
                     {
                         <div>Reason: @rejectReason</div>
                     }
                 </MudAlert>
             }
-            else if (!_data.HasSuggestion)
+            else if (_form is null)
             {
-                <MudAlert Severity="Severity.Info" Class="mb-2">This ticket hasn't been analysed yet.</MudAlert>
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AnalyseNowAsync">Analyse now</MudButton>
+                <MudAlert Severity="Severity.Info">This ticket hasn't been analysed yet.</MudAlert>
             }
-            else if (_form is not null)
+            else
             {
                 <MudPaper Outlined Class="pa-4">
                     <MudText Typo="Typo.h6" Class="mb-2">Suggested / edited</MudText>
 
-                    @if (BaselineHasNoChanges)
+                    @if (_review.Suggestion is { IsFallback: true })
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense Class="mb-2">This is a fallback suggestion (the agent could not produce one).</MudAlert>
+                    }
+                    else if (BaselineHasNoChanges)
                     {
                         <MudAlert Severity="Severity.Info" Dense Class="mb-2">No changes suggested.</MudAlert>
                     }
 
                     <MudStack Spacing="3">
-                        <div class="@FieldClass(ReviewField.WorkType)">
+                        <div class="@FieldClass(SuggestionField.WorkType)">
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                 <MudText Typo="Typo.body2">Work type</MudText>
-                                <OwnerBadge Field="ReviewField.WorkType" />
+                                <OwnerBadge Field="SuggestionField.WorkType" />
                             </MudStack>
                             <MudSelect T="WorkType" @bind-Value="_form.WorkType" Dense="true">
                                 @foreach (var value in Enum.GetValues<WorkType>())
@@ -106,75 +105,63 @@ else
                                     <MudSelectItem T="WorkType" Value="value">@TriageVocabulary.ToJsonName(value)</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (Differs(ReviewField.WorkType))
+                            @if (Differs(SuggestionField.WorkType))
                             {
-                                <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.WorkType)</MudText>
+                                <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.WorkType)</MudText>
                             }
                         </div>
 
-                        <div class="@FieldClass(ReviewField.AffectedService)">
+                        <div class="@FieldClass(SuggestionField.AffectedServices)">
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                <MudText Typo="Typo.body2">Affected service</MudText>
-                                <OwnerBadge Field="ReviewField.AffectedService" />
+                                <MudText Typo="Typo.body2">Affected service(s)</MudText>
+                                <OwnerBadge Field="SuggestionField.AffectedServices" />
                             </MudStack>
-                            <MudSelect T="string" @bind-Value="_form.AffectedService" Dense="true" Clearable="true">
-                                @foreach (var name in _data.AllAffectedServiceNames)
+                            <MudSelect T="string" MultiSelection="true" SelectedValues="_form.AffectedServices" SelectedValuesChanged="OnAffectedServicesChanged" Dense="true">
+                                @foreach (var service in ServiceCatalog.All)
                                 {
-                                    <MudSelectItem T="string" Value="name">@name</MudSelectItem>
+                                    <MudSelectItem T="string" Value="service.Name">@service.Name</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (Hint(ReviewField.AffectedService) is { } affectedServiceHint)
+                            @if (Differs(SuggestionField.AffectedServices))
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Warning">@affectedServiceHint</MudText>
-                            }
-                            else if (Differs(ReviewField.AffectedService))
-                            {
-                                <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.AffectedService)</MudText>
+                                <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.AffectedServices)</MudText>
                             }
                         </div>
 
-                        <div class="@FieldClass(ReviewField.ServiceTeam)">
+                        <div class="@FieldClass(SuggestionField.ServiceTeams)">
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                 <MudText Typo="Typo.body2">Service team</MudText>
-                                <OwnerBadge Field="ReviewField.ServiceTeam" />
+                                <OwnerBadge Field="SuggestionField.ServiceTeams" />
                             </MudStack>
                             <MudSelect T="string" @bind-Value="_form.ServiceTeam" Dense="true" Clearable="true">
-                                @foreach (var name in _data.AllServiceTeamNames)
+                                @foreach (var team in ServiceTeamCatalog.All)
                                 {
-                                    <MudSelectItem T="string" Value="name">@name</MudSelectItem>
+                                    <MudSelectItem T="string" Value="team">@team</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (Hint(ReviewField.ServiceTeam) is { } serviceTeamHint)
+                            @if (Differs(SuggestionField.ServiceTeams))
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Warning">@serviceTeamHint</MudText>
-                            }
-                            else if (Differs(ReviewField.ServiceTeam))
-                            {
-                                <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.ServiceTeam)</MudText>
+                                <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.ServiceTeams)</MudText>
                             }
                         </div>
 
-                        <div class="@FieldClass(ReviewField.Assignee)">
+                        <div class="@FieldClass(SuggestionField.Assignee)">
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                 <MudText Typo="Typo.body2">Assignee</MudText>
-                                <OwnerBadge Field="ReviewField.Assignee" />
+                                <OwnerBadge Field="SuggestionField.Assignee" />
                             </MudStack>
-                            <MudTextField T="string" @bind-Value="_form.Assignee" MaxLength="50" Immediate="true" id="review-assignee-input" />
-                            @if (Hint(ReviewField.Assignee) is { } assigneeHint)
+                            <MudTextField T="string" @bind-Value="_form.Assignee" MaxLength="100" Immediate="true" id="review-assignee-input" />
+                            @if (Differs(SuggestionField.Assignee))
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Warning">@assigneeHint</MudText>
-                            }
-                            else if (Differs(ReviewField.Assignee))
-                            {
-                                <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.Assignee)</MudText>
+                                <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.Assignee)</MudText>
                             }
                         </div>
 
                         <MudStack Row Spacing="2">
-                            <div class="flex-grow-1 @FieldClass(ReviewField.Urgency)">
+                            <div class="flex-grow-1 @FieldClass(SuggestionField.Urgency)">
                                 <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                     <MudText Typo="Typo.body2">Urgency</MudText>
-                                    <OwnerBadge Field="ReviewField.Urgency" />
+                                    <OwnerBadge Field="SuggestionField.Urgency" />
                                 </MudStack>
                                 <MudSelect T="Urgency" @bind-Value="_form.Urgency" Dense="true">
                                     @foreach (var value in Enum.GetValues<Urgency>())
@@ -182,16 +169,16 @@ else
                                         <MudSelectItem T="Urgency" Value="value">@TriageVocabulary.ToJsonName(value)</MudSelectItem>
                                     }
                                 </MudSelect>
-                                @if (Differs(ReviewField.Urgency))
+                                @if (Differs(SuggestionField.Urgency))
                                 {
-                                    <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.Urgency)</MudText>
+                                    <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.Urgency)</MudText>
                                 }
                             </div>
 
-                            <div class="flex-grow-1 @FieldClass(ReviewField.Impact)">
+                            <div class="flex-grow-1 @FieldClass(SuggestionField.Impact)">
                                 <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                     <MudText Typo="Typo.body2">Impact</MudText>
-                                    <OwnerBadge Field="ReviewField.Impact" />
+                                    <OwnerBadge Field="SuggestionField.Impact" />
                                 </MudStack>
                                 <MudSelect T="Impact" @bind-Value="_form.Impact" Dense="true">
                                     @foreach (var value in Enum.GetValues<Impact>())
@@ -199,9 +186,9 @@ else
                                         <MudSelectItem T="Impact" Value="value">@TriageVocabulary.ToJsonName(value)</MudSelectItem>
                                     }
                                 </MudSelect>
-                                @if (Differs(ReviewField.Impact))
+                                @if (Differs(SuggestionField.Impact))
                                 {
-                                    <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.Impact)</MudText>
+                                    <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.Impact)</MudText>
                                 }
                             </div>
                         </MudStack>
@@ -210,10 +197,10 @@ else
                             <b>Priority: @TriageVocabulary.ToJsonName(_form.Priority)</b>
                         </MudText>
 
-                        <div class="@FieldClass(ReviewField.Resolution)">
+                        <div class="@FieldClass(SuggestionField.ResolutionStatus)">
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                 <MudText Typo="Typo.body2">Resolution</MudText>
-                                <OwnerBadge Field="ReviewField.Resolution" />
+                                <OwnerBadge Field="SuggestionField.ResolutionStatus" />
                             </MudStack>
                             <MudSelect T="ResolutionStatus?" @bind-Value="_form.Resolution" Dense="true" Clearable="true">
                                 @foreach (var value in Enum.GetValues<ResolutionStatus>())
@@ -221,22 +208,18 @@ else
                                     <MudSelectItem T="ResolutionStatus?" Value="value">@TriageVocabulary.ToJsonName(value)</MudSelectItem>
                                 }
                             </MudSelect>
-                            @if (Hint(ReviewField.Resolution) is { } resolutionHint)
+                            @if (Differs(SuggestionField.ResolutionStatus))
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Warning">@resolutionHint</MudText>
-                            }
-                            else if (Differs(ReviewField.Resolution))
-                            {
-                                <MudText Typo="Typo.caption">was: @OriginalDisplay(ReviewField.Resolution)</MudText>
+                                <MudText Typo="Typo.caption">was: @OriginalDisplay(SuggestionField.ResolutionStatus)</MudText>
                             }
                         </div>
 
                         <div>
                             <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
                                 <MudText Typo="Typo.body2">Comment</MudText>
-                                <OwnerBadge Field="ReviewField.Comment" />
+                                <OwnerBadge Field="SuggestionField.DraftComment" />
                             </MudStack>
-                            <MudTextField T="string" @bind-Value="_form.Comment" Lines="4" MaxLength="500" />
+                            <MudTextField T="string" @bind-Value="_form.Comment" Lines="4" MaxLength="2000" />
                         </div>
                     </MudStack>
 
@@ -249,11 +232,11 @@ else
                 </MudPaper>
 
                 <MudPaper Outlined Class="pa-4 mt-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">References &amp; confidence</MudText>
-                    @if (_data.SimilarTicketKeys.Count > 0)
+                    <MudText Typo="Typo.h6" Class="mb-2">Similar tickets</MudText>
+                    @if (_review.Suggestion?.SimilarTicketKeys is { Count: > 0 } keys)
                     {
                         <div>
-                            @foreach (var key in _data.SimilarTicketKeys)
+                            @foreach (var key in keys)
                             {
                                 <MudChip T="string" Size="Size.Small" Class="mr-1 mb-1">@key</MudChip>
                             }
@@ -263,9 +246,6 @@ else
                     {
                         <MudText Typo="Typo.body2">No references</MudText>
                     }
-                    <MudText Typo="Typo.body2" Class="mt-2">
-                        Confidence: @(_data.Confidence is > 0 ? _data.Confidence.Value.ToString("P0") : "—")
-                    </MudText>
                 </MudPaper>
             }
         </MudItem>

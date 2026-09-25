@@ -1,41 +1,39 @@
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
+using TicketTriage.Core.Abstractions;
 using TicketTriage.Web.Triage;
 
 namespace TicketTriage.Web.Components.Pages;
 
-/// <summary>Code-behind for <c>/tickets</c> (FR13/FR14). Loads via <see cref="ITriageBoardQuery"/> in
-/// <c>OnInitializedAsync</c> (DB-only, safe under prerender - Leitplanke 7) and subscribes to
-/// <see cref="TriageSessionStore.TicketChanged"/> only after the first render, unsubscribing on dispose (NFR7).</summary>
-public partial class Tickets : IDisposable
+/// <summary>Code-behind for <c>/tickets</c> (FR13/FR14). Loads via <see cref="ITicketBoardQuery"/> in
+/// <c>OnInitializedAsync</c> (DB-only, safe under prerender) and refreshes on a fixed interval since main's backend
+/// has no ticket-changed event (blazor-server skill: timers/background updates always go through
+/// <c>InvokeAsync(StateHasChanged)</c>).</summary>
+public partial class Tickets : IAsyncDisposable
 {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+
     private readonly CancellationTokenSource _cts = new();
     private IReadOnlyList<TicketBoardRow> _rows = [];
     private TicketDisplayState? _filter;
-    private bool _reloading;
-    private bool _dirty;
+    private PeriodicTimer? _timer;
+    private Task? _refreshLoop;
 
     [Inject]
-    private ITriageBoardQuery BoardQuery { get; set; } = null!;
+    private ITicketBoardQuery BoardQuery { get; set; } = null!;
 
     [Inject]
-    private TriageSessionStore Store { get; set; } = null!;
+    private IReviewService ReviewService { get; set; } = null!;
 
     [Inject]
     private NavigationManager Navigation { get; set; } = null!;
 
-    [SupplyParameterFromQuery(Name = "uploadId")]
-    [Parameter]
-    public int? UploadId { get; set; }
-
-    /// <summary>Preselects the state filter chip (FR22/AC13: dashboard cards link here as <c>/tickets?state=…</c>).</summary>
+    /// <summary>Preselects the state filter chip (dashboard cards link here as <c>/tickets?state=…</c>).</summary>
     [SupplyParameterFromQuery(Name = "state")]
     [Parameter]
     public string? State { get; set; }
 
     private IEnumerable<TicketBoardRow> FilteredRows => _filter is null ? _rows : _rows.Where(r => r.State == _filter);
-
-    private UploadProgress? Progress => UploadId is { } uploadId ? Store.GetUploadProgress(uploadId) : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -47,34 +45,24 @@ public partial class Tickets : IDisposable
     {
         if (firstRender)
         {
-            Store.TicketChanged += OnTicketChanged;
+            _timer = new PeriodicTimer(RefreshInterval);
+            _refreshLoop = RefreshLoopAsync();
         }
     }
 
-    private void OnTicketChanged(int ticketId) => _ = InvokeAsync(ReloadAsync);
-
-    private async Task ReloadAsync()
+    private async Task RefreshLoopAsync()
     {
-        if (_reloading)
-        {
-            _dirty = true;
-            return;
-        }
-
-        _reloading = true;
         try
         {
-            do
+            while (await _timer!.WaitForNextTickAsync(_cts.Token))
             {
-                _dirty = false;
                 _rows = await BoardQuery.GetRowsAsync(_cts.Token);
-                StateHasChanged();
+                await InvokeAsync(StateHasChanged);
             }
-            while (_dirty);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            _reloading = false;
+            // Component disposed.
         }
     }
 
@@ -83,16 +71,28 @@ public partial class Tickets : IDisposable
     private void OpenReview(DataGridRowClickEventArgs<TicketBoardRow> args) =>
         Navigation.NavigateTo($"review/{args.Item.Id}");
 
-    private async Task RequeueAsync(int ticketId)
+    private async Task RequeueAsync(TicketBoardRow row)
     {
-        Store.Requeue(ticketId);
-        await ReloadAsync();
+        await ReviewService.RequeueFailedAsync(row.Id, row.Version, _cts.Token);
+        _rows = await BoardQuery.GetRowsAsync(_cts.Token);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        Store.TicketChanged -= OnTicketChanged;
-        _cts.Cancel();
+        await _cts.CancelAsync();
+        _timer?.Dispose();
+        if (_refreshLoop is not null)
+        {
+            try
+            {
+                await _refreshLoop;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on dispose.
+            }
+        }
+
         _cts.Dispose();
     }
 }

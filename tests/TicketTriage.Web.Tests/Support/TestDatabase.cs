@@ -7,8 +7,8 @@ namespace TicketTriage.Web.Tests.Support;
 /// <summary>
 /// A SQLite in-memory database reachable from multiple connections/contexts at once, via a named shared-cache
 /// database kept alive for the test's lifetime by one open connection (sqlite-efcore skill: <c>DataSource=:memory:</c>
-/// alone is single-connection only, but the <see cref="TriageWorker"/> runs on a different thread/connection
-/// than the test).
+/// alone is single-connection only, but <see cref="IDbContextFactory{TriageDbContext}"/> hands out a fresh
+/// context per operation, possibly on a different connection than the one that seeded the data).
 /// </summary>
 public sealed class TestDatabase : IAsyncDisposable
 {
@@ -40,17 +40,6 @@ public sealed class TestDatabase : IAsyncDisposable
     public TriageDbContext CreateContext() => new(Options(ConnectionString));
 
     public IDbContextFactory<TriageDbContext> CreateFactory() => new Factory(ConnectionString);
-
-    /// <summary>Simulates an old local DB that still carries the "Finished" status the current seed data no
-    /// longer has (main dropped it after this Web slice was built) - inserted with a fixed id well above the
-    /// current seed's range so it never collides with New/Reviewing/Reviewed/HumanRejected/HumanApproved (0-4).
-    /// Must run before the <see cref="LookupCatalog"/> under test calls <c>EnsureLoadedAsync</c> the first time.</summary>
-    public async Task AddLegacyFinishedStatusAsync(CancellationToken cancellationToken)
-    {
-        await using var db = CreateContext();
-        db.Statuses.Add(new StatusEntity { Id = 99, Name = "Finished" });
-        await db.SaveChangesAsync(cancellationToken);
-    }
 
     public async ValueTask DisposeAsync()
     {
