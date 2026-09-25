@@ -231,7 +231,7 @@ else
                         <MudButton Variant="Variant.Outlined" OnClick="ResetForm" Disabled="_busy" id="review-reset-button">Reset</MudButton>
                         <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="RejectAsync" Disabled="_busy" id="review-reject-button">Reject</MudButton>
                         <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="AcceptAsync" Disabled="@(!CanAccept)" id="review-accept-button">Accept</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(!CanSave)" id="review-save-button">Save</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="SaveAsync" Disabled="@(!CanSave)" id="review-save-button">Save</MudButton>
                     </MudStack>
                 </MudPaper>
 

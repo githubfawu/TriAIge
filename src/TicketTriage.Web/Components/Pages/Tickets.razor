@@ -5,7 +5,7 @@
 <MudText Typo="Typo.h4" Class="mb-4">Tickets</MudText>
 
 <MudChipSet T="TicketDisplayState?" SelectedValue="_filter" SelectedValueChanged="SetFilter"
-            SelectionMode="SelectionMode.SingleSelection" Class="mb-4">
+            SelectionMode="SelectionMode.SingleSelection" SelectedColor="Color.Secondary" Class="mb-4">
     <MudChip Value="@((TicketDisplayState?)null)">All (@_rows.Count)</MudChip>
     @foreach (var state in Enum.GetValues<TicketDisplayState>())
     {
@@ -35,10 +35,11 @@
         </TemplateColumn>
         <TemplateColumn Title="Priority" Sortable="false">
             <CellTemplate>
-                @context.Item.Priority
-                @if (context.Item.SuggestedPriority is { } suggestedPriority)
+                @{ var shown = context.Item.SuggestedPriority ?? (context.Item.Priority == "—" ? null : context.Item.Priority); }
+                <span class="tt-prio @PrioClass(shown)">@(shown ?? "—")</span>
+                @if (context.Item.SuggestedPriority is not null)
                 {
-                    <MudText Typo="Typo.caption" Class="d-block">@(context.Item.IsFinal ? "final" : "suggested"): @suggestedPriority</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block tt-muted">@(context.Item.IsFinal ? "final" : "suggested") · original @context.Item.Priority</MudText>
                 }
             </CellTemplate>
         </TemplateColumn>

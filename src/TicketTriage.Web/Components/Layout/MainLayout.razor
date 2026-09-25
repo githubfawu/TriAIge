@@ -5,26 +5,41 @@
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<MudLayout>
-    <MudAppBar Elevation="1">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
-        <MudText Typo="Typo.h6" Class="ml-2">TriAIge</MudText>
+<MudLayout Class="tt-shell">
+    <MudAppBar Elevation="0" Dense="true" Class="tt-appbar">
+        <MudIconButton Icon="@Icons.Material.Outlined.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" Size="Size.Small" />
         <MudSpacer />
-        <MudText Typo="Typo.body2">AI ticket triage &middot; human in the loop</MudText>
+        <MudText Typo="Typo.caption" Class="tt-appbar-tagline">AI ticket triage &middot; human in the loop</MudText>
     </MudAppBar>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1">
-        <MudNavMenu>
-            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-            <MudNavLink Href="upload" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.UploadFile">Upload</MudNavLink>
-            <MudNavLink Href="tickets" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Inbox">Tickets</MudNavLink>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Never" Elevation="0" Variant="DrawerVariant.Responsive" Class="tt-drawer">
+        <div class="tt-workspace">
+            <div class="tt-workspace-logo">TA</div>
+            <div>
+                <div class="tt-workspace-name">TriAIge</div>
+                <div class="tt-workspace-role">Service Desk &middot; Analyst</div>
+            </div>
+        </div>
+
+        <div class="tt-nav-section">Triage</div>
+        <MudNavMenu Class="tt-nav">
+            <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.SpaceDashboard">Dashboard</MudNavLink>
+            <MudNavLink Href="upload" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.FileUpload">Upload</MudNavLink>
+            <MudNavLink Href="tickets" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.ConfirmationNumber">Tickets</MudNavLink>
         </MudNavMenu>
+
+        <div class="tt-drawer-footer">
+            <span class="tt-drawer-footer-label">Powered by</span>
+            <span class="tt-drawer-footer-brand">TriAIge</span>
+        </div>
     </MudDrawer>
 
     <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.Large" Class="py-6">
-            @Body
-        </MudContainer>
+        <div class="tt-canvas">
+            <div class="tt-page">
+                @Body
+            </div>
+        </div>
     </MudMainContent>
 </MudLayout>
 

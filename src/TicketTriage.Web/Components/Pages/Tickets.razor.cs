@@ -95,4 +95,7 @@ public partial class Tickets : IAsyncDisposable
 
         _cts.Dispose();
     }
+
+    private static string PrioClass(string? priority) =>
+        priority is null ? "tt-prio-none" : "tt-prio-" + priority.ToLowerInvariant();
 }
