@@ -2020,3 +2020,92 @@ a.tt-attention:hover {
 .tt-upload-grid .mud-table-body .mud-table-row {
     cursor: pointer;
 }
+
+/* ---------- Decided tickets: final triage (approved) / rejected suggestion ---------- */
+.tt-final {
+    margin-top: 12px;
+}
+
+.tt-final .tt-group:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.tt-final-list {
+    margin: 8px 0 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.tt-final-row {
+    display: grid;
+    grid-template-columns: 118px minmax(0, 1fr);
+    gap: 8px;
+    padding: 7px 10px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.tt-final-row:last-child {
+    border-bottom: 0;
+}
+
+.tt-final-row dt {
+    margin: 0;
+    font-size: 0.74rem;
+    color: #6b7280;
+}
+
+.tt-final-row dd {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.tt-final-value {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #111827;
+    overflow-wrap: anywhere;
+}
+
+.tt-final-source {
+    font-size: 0.68rem;
+    font-weight: 500;
+}
+
+.tt-src-edited { color: #15803d; }
+.tt-src-ai { color: #2563eb; }
+.tt-src-original { color: #9ca3af; }
+
+.tt-final-comment {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: #374151;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.tt-final-rejected .tt-final-value,
+.tt-final-rejected .tt-final-comment {
+    color: #9ca3af;
+    text-decoration: line-through;
+    text-decoration-color: #d1d5db;
+}
+
+.tt-reject-reason {
+    font-weight: 600;
+    color: #991b1b;
+}
+
+.tt-final-row dd .tt-prio {
+    align-self: flex-start;
+}

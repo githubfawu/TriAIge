@@ -136,13 +136,50 @@ else
             }
             else if (_state is TicketDisplayState.Approved or TicketDisplayState.Rejected)
             {
-                <div class="tt-note @(_state == TicketDisplayState.Approved ? "tt-note-success" : "tt-note-error")">
-                    This ticket has been @(_state == TicketDisplayState.Approved ? "approved" : "rejected") - decisions are final.
-                    @if (_state == TicketDisplayState.Rejected && _review.Decision?.RejectReason is { } rejectReason)
+                var approved = _state == TicketDisplayState.Approved;
+                <div class="tt-note @(approved ? "tt-note-success" : "tt-note-error")">
+                    This ticket has been @(approved ? "approved" : "rejected") - decisions are final.
+                    @if (_review.Decision?.DecidedAtUtc is { } decidedAt)
                     {
-                        <div class="tt-note-detail">Reason: @rejectReason</div>
+                        <div class="tt-note-detail">Decided @decidedAt.ToLocalTime().ToString("g")</div>
+                    }
+                    @if (!approved && _review.Decision?.RejectReason is { } rejectReason)
+                    {
+                        <div class="tt-note-detail tt-reject-reason">Reason: @rejectReason</div>
                     }
                 </div>
+
+                @if ((approved ? _review.EffectiveSuggestion : _review.Suggestion) is { } shown)
+                {
+                    <div class="tt-final @(approved ? "" : "tt-final-rejected")">
+                        <div class="tt-group">@(approved ? "Final triage" : "Rejected AI suggestion")</div>
+                        <dl class="tt-final-list">
+                            @foreach (var field in ReviewFields.Where(f => f != SuggestionField.DraftComment))
+                            {
+                                var source = approved ? FinalSource(field) : null;
+                                <div class="tt-final-row">
+                                    <dt>@FieldName(field)</dt>
+                                    <dd>
+                                        <span class="tt-final-value">@SuggestionDisplay(field, shown)</span>
+                                        @if (source is { } src)
+                                        {
+                                            <span class="tt-final-source tt-src-@src.Css">@src.Text</span>
+                                        }
+                                    </dd>
+                                </div>
+                            }
+                            <div class="tt-final-row">
+                                <dt>Priority</dt>
+                                <dd><span class="tt-prio tt-prio-@TriageVocabulary.ToJsonName(shown.Priority).ToLowerInvariant()">@TriageVocabulary.ToJsonName(shown.Priority)</span></dd>
+                            </div>
+                        </dl>
+                        @if (!string.IsNullOrWhiteSpace(shown.DraftComment))
+                        {
+                            <div class="tt-group">@(approved ? "Final comment" : "Rejected draft comment")</div>
+                            <p class="tt-final-comment">@shown.DraftComment</p>
+                        }
+                    </div>
+                }
             }
             else if (_form is null)
             {

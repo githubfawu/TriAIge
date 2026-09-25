@@ -185,6 +185,36 @@ public partial class Review : IAsyncDisposable
         _ => $"{FieldName(field)}: AI changed {OriginalDisplay(field)} → {CurrentDisplay(field)}",
     };
 
+    // ---- Decided tickets: show the final (or rejected) values next to the original. ----
+
+    private static string SuggestionDisplay(SuggestionField field, TriageSuggestion s) => (field switch
+    {
+        SuggestionField.WorkType => TriageVocabulary.ToJsonName(s.WorkType),
+        SuggestionField.AffectedServices => s.AffectedServices.Count > 0 ? string.Join(", ", s.AffectedServices) : null,
+        SuggestionField.ServiceTeams => s.ServiceTeams.Count > 0 ? string.Join(", ", s.ServiceTeams) : null,
+        SuggestionField.Assignee => s.Assignee,
+        SuggestionField.Urgency => TriageVocabulary.ToJsonName(s.Urgency),
+        SuggestionField.Impact => TriageVocabulary.ToJsonName(s.Impact),
+        SuggestionField.ResolutionStatus => s.ResolutionStatus is { } r ? TriageVocabulary.ToJsonName(r) : null,
+        _ => null,
+    }) is { Length: > 0 } value ? value : "—";
+
+    private sealed record SourceTag(string Text, string Css);
+
+    // Where a final value came from: the analyst's edit, the AI, or the ticket as reported.
+    private SourceTag FinalSource(SuggestionField field)
+    {
+        if (_review?.Edits.FirstOrDefault(e => e.Field == field) is { } edit)
+        {
+            return new SourceTag($"Edited by analyst · AI suggested {edit.AiValue ?? "—"}", "edited");
+        }
+
+        var final = _review?.EffectiveSuggestion is { } s ? SuggestionDisplay(field, s) : "—";
+        return string.Equals(final, OriginalDisplay(field), StringComparison.OrdinalIgnoreCase)
+            ? new SourceTag("Original", "original")
+            : new SourceTag("AI", "ai");
+    }
+
     private static string FlagText(FieldState state) => state switch
     {
         FieldState.Missing => "Required",
