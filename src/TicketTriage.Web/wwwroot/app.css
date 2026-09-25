@@ -172,10 +172,7 @@ h1:focus {
 }
 
 /* Highlights a review field whose current value differs from the ticket's original (FR15). */
-.tt-field-changed {
-    border-left: 3px solid #22a55b;
-    padding-left: 8px;
-}
+/* Changed-field styling lives with the ticket detail rules further below. */
 /* ---------- Kirridesk-style shell: grey canvas, white app surface, light sidebar ---------- */
 body {
     font-family: Inter, Helvetica, Arial, sans-serif;
@@ -677,4 +674,475 @@ body {
     align-items: center;
     gap: 7px;
     color: #4b5563;
+}
+
+/* ---------- Ticket detail (reference: slim header with back link + actions, wide content, narrow grey side panel) ---------- */
+.tt-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: #6b7280;
+    text-decoration: none;
+}
+
+.tt-back:hover {
+    color: #111827;
+}
+
+.tt-detail-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #eef0f3;
+}
+
+.tt-detail-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 380px;
+}
+
+.tt-detail-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.tt-key {
+    flex: none;
+    padding: 2px 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #f9fafb;
+    font-size: 0.78rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #374151;
+}
+
+.tt-detail-subject {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #111827;
+}
+
+.tt-detail-subject:focus {
+    outline: none;
+}
+
+.tt-detail-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tt-actions-divider {
+    width: 1px;
+    height: 24px;
+    margin: 0 4px;
+    background: #e5e7eb;
+}
+
+.tt-detail {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 20px;
+    align-items: start;
+}
+
+.tt-detail-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.tt-card {
+    padding: 18px 20px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #ffffff;
+}
+
+.tt-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.tt-card-title .mud-icon-root {
+    color: #6b7280;
+}
+
+.tt-card-hint {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: #9ca3af;
+}
+
+.tt-description {
+    margin: 0 0 16px;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: #374151;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.tt-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(140px, auto) minmax(0, 1fr));
+    gap: 0;
+    margin: 0;
+    border-top: 1px solid #eef0f3;
+}
+
+.tt-facts dt,
+.tt-facts dd {
+    margin: 0;
+    padding: 9px 0;
+    border-bottom: 1px solid #eef0f3;
+    font-size: 0.8125rem;
+}
+
+.tt-facts dt {
+    color: #6b7280;
+}
+
+.tt-facts dd {
+    padding-right: 16px;
+    color: #111827;
+    overflow-wrap: anywhere;
+}
+
+.tt-timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tt-timeline li {
+    position: relative;
+    display: flex;
+    gap: 12px;
+    padding-bottom: 12px;
+}
+
+.tt-timeline li:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 16px;
+    bottom: 0;
+    width: 1px;
+    background: #e5e7eb;
+}
+
+.tt-timeline-dot {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    margin-top: 5px;
+    border: 2px solid #d1d5db;
+    border-radius: 50%;
+    background: #ffffff;
+}
+
+.tt-timeline p {
+    margin: 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: #374151;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.tt-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.tt-tag {
+    padding: 2px 8px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #f9fafb;
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: #374151;
+}
+
+/* Side panel with compact, outlined fields. */
+.tt-side {
+    position: sticky;
+    top: 76px;
+    padding: 18px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #f9fafb;
+}
+
+.tt-side-title {
+    margin-bottom: 14px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.tt-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.tt-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.tt-field-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.tt-field-help {
+    font-size: 0.68rem;
+    font-weight: 400;
+    color: #9ca3af;
+}
+
+.tt-side .mud-input-control {
+    margin: 0;
+}
+
+.tt-side .mud-input.mud-input-outlined {
+    background: #ffffff;
+    border-radius: 8px;
+}
+
+.tt-side .mud-input-outlined-border {
+    border-color: #e5e7eb !important;
+    border-radius: 8px;
+}
+
+.tt-side .mud-input.mud-input-outlined:hover .mud-input-outlined-border {
+    border-color: #cbd2d9 !important;
+}
+
+.tt-side .mud-input.mud-input-outlined.mud-focused .mud-input-outlined-border {
+    border-color: #22a55b !important;
+    border-width: 1px !important;
+    box-shadow: 0 0 0 3px rgba(34, 165, 91, 0.12);
+}
+
+.tt-side .mud-input > input.mud-input-root-outlined.mud-input-root-margin-dense,
+.tt-side .mud-input .mud-select-input {
+    font-size: 0.8125rem;
+}
+
+/* A field whose value differs from the original: green dot on the label + quiet "was" line. */
+.tt-field-changed .tt-field-label > span:first-child::after {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: #22a55b;
+    vertical-align: middle;
+}
+
+.tt-was {
+    margin-top: 4px;
+    font-size: 0.72rem;
+    color: #9ca3af;
+}
+
+.tt-prio-scale {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.tt-prio-step {
+    display: flex;
+    justify-content: center;
+    padding: 4px 0;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #9ca3af;
+}
+
+.tt-prio-step.tt-prio {
+    padding: 4px 0;
+    gap: 4px;
+    font-weight: 600;
+}
+
+.tt-note {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+.tt-note-info { background: #eff6ff; color: #1d4ed8; }
+.tt-note-warning { background: #fffbeb; color: #b45309; }
+.tt-note-error { background: #fef2f2; color: #b91c1c; }
+.tt-note-success { background: #f0fdf4; color: #15803d; }
+
+.tt-note-detail {
+    margin-top: 4px;
+    color: #374151;
+}
+
+.tt-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Lighter 3-light traffic light for the header. */
+.tl-large .tl-large-lights {
+    padding: 4px 6px;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    gap: 5px;
+}
+
+.tl-large .tl-large-light {
+    width: 10px;
+    height: 10px;
+    opacity: 0.22;
+}
+
+.tl-large .tl-large-lit {
+    opacity: 1;
+    box-shadow: none;
+}
+
+.owner-badge {
+    padding: 1px 7px !important;
+    border-radius: 6px !important;
+    font-size: 0.66rem !important;
+    font-weight: 600 !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+}
+
+@media (max-width: 1100px) {
+    .tt-detail {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tt-side {
+        position: static;
+        order: -1;
+    }
+
+    .tt-facts {
+        grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+    }
+}
+
+/* ---------- Compact ticket list: dense rows so a full challenge set fits on screen; only the table scrolls ---------- */
+.tt-tickets-page .tt-page-header {
+    margin-bottom: 12px;
+}
+
+.tt-tickets-page .tt-page-header .mud-typography-h4 {
+    font-size: 1.25rem;
+}
+
+.tt-tickets-page .tt-toolbar {
+    margin-bottom: 10px;
+}
+
+.tt-tickets-page .tt-search,
+.tt-tickets-page .tt-filter {
+    height: 30px;
+}
+
+.tt-tickets-page .tt-filter {
+    height: 24px;
+    font-size: 0.74rem;
+}
+
+.tt-tickets-grid .mud-table-head .mud-table-cell {
+    height: 30px;
+    font-size: 0.7rem;
+}
+
+.tt-tickets-grid .mud-table-body .mud-table-cell {
+    height: 32px;
+    padding: 2px 12px !important;
+    font-size: 0.78rem;
+}
+
+.tt-tickets-grid .tl-dot,
+.tt-tickets-grid .tt-prio {
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 0.7rem;
+    line-height: 1.55;
+}
+
+.tt-tickets-grid .tt-type {
+    height: 20px;
+    font-size: 0.7rem;
+}
+
+.tt-tickets-grid .tl-dot .mud-icon-root,
+.tt-tickets-grid .tt-type .mud-icon-root {
+    font-size: 0.85rem;
+}
+
+/* The table takes the remaining viewport height; the page itself never scrolls vertically. */
+.tt-page .tt-tickets-page .tt-grid .mud-table-container,
+.tt-tickets-page .tt-tickets-grid .mud-table-container {
+    max-height: calc(100vh - 56px - 40px - 48px - 150px);
 }
